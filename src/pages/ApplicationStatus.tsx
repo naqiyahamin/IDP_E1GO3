@@ -1,4 +1,4 @@
-import { useState, useMemo } from 'react';
+import { useState, useMemo, useEffect } from 'react';
 import { Clock, ShieldCheck, UserX, UserCheck, CheckCircle, FileText, Camera, UploadCloud, Ban, Undo2, Table, AlertTriangle, PackageCheck } from 'lucide-react';
 import { useAppState } from '../context';
 import type { UserRole } from '../auth';
@@ -38,9 +38,18 @@ export default function ApplicationStatus({ userRole, currentUserEmail = "" }: A
   const isStaff = userRole === 'staff';
   const cleanUserEmail = currentUserEmail.trim().toLowerCase();
 
-  // ==========================================
-  // ROLE-BASED DATA FILTERING PIPELINE
-  // ==========================================
+  // Low-overhead synchronization listener ensuring all concurrent applications render safely instantly
+  const [, forceSyncUpdate] = useState({});
+  useEffect(() => {
+    const handleRefresh = () => forceSyncUpdate({});
+    window.addEventListener('storage', handleRefresh);
+    const syncInterval = setInterval(handleRefresh, 400);
+    return () => {
+      window.removeEventListener('storage', handleRefresh);
+      clearInterval(syncInterval);
+    };
+  }, []);
+
   const incomingVerificationQueue = useMemo(() => {
     if (isStaff) return rawQueue;
     return rawQueue.filter(app => app.formData.emailAddress.trim().toLowerCase() === cleanUserEmail);
@@ -56,17 +65,16 @@ export default function ApplicationStatus({ userRole, currentUserEmail = "" }: A
     return rawLedger.filter(app => app.formData.emailAddress.trim().toLowerCase() === cleanUserEmail);
   }, [rawLedger, isStaff, cleanUserEmail]);
 
-  // ==========================================
-  // INVENTORY MASTER AGGREGATOR SPREADSHEET LOGIC
-  // ==========================================
+  const contextDataHash = JSON.stringify([rawQueue, rawLog, rawLedger]);
+
   const inventorySpreadsheetData = useMemo(() => {
     const stats: Record<string, {
       code: string;
       name: string;
       totalBorrowedTimes: number;
-      isBeingBorrowed: number; // Awaiting confirmation in queue
-      inPossession: number;    // Checked out and with the student
-      overdueCount: number;    // Kept beyond promised target date
+      isBeingBorrowed: number;
+      inPossession: number;
+      overdueCount: number;
     }> = {};
 
     const getEquipmentName = (code: string) => {
@@ -89,52 +97,86 @@ export default function ApplicationStatus({ userRole, currentUserEmail = "" }: A
       }
     };
 
-    // Pipeline 1: Awaiting Approvals
     rawQueue.forEach(app => {
       initRow(app.equipmentCode);
       stats[app.equipmentCode].isBeingBorrowed += 1;
       stats[app.equipmentCode].totalBorrowedTimes += 1;
     });
 
-    // Pipeline 2: Active Possessions
     rawLog.forEach(app => {
       initRow(app.equipmentCode);
       stats[app.equipmentCode].totalBorrowedTimes += 1;
-      
       if (!(app.isReturned && app.returnDetails)) {
         stats[app.equipmentCode].inPossession += 1;
-        
-        // Target timeline parsing matching system clock context: 2026-06-04
         try {
           const currentSystemDate = new Date('2026-06-04');
           const targetReturnDate = new Date(app.formData.dateBorrow);
-          
           if (!isNaN(targetReturnDate.getTime()) && targetReturnDate < currentSystemDate) {
             stats[app.equipmentCode].overdueCount += 1;
           }
-        } catch (e) {
-          // Graceful fallback ignore
-        }
+        } catch (e) {}
       }
     });
 
-    // Pipeline 3: Closed Historical Archives
     rawLedger.forEach(app => {
       initRow(app.equipmentCode);
       stats[app.equipmentCode].totalBorrowedTimes += 1;
     });
 
     return Object.values(stats);
-  }, [rawQueue, rawLog, rawLedger]);
+  }, [contextDataHash]);
 
-  // Baseline asset laboratory limits allocations
   const getAssetTotalCapacity = (code: string) => {
     if (code.includes('570')) return 5;
     if (code.includes('210')) return 8;
     return 4;
   };
 
-  // ==========================================
+  // ===================================================================
+  // AUTOMATED CASCADE REDIRECT ROUTING LOGIC ENGINE
+  // ===================================================================
+  const handleStaffApproveWithRedirect = (targetAppId: string, currentCode: string) => {
+    // 1. Approve the upper target selection first
+    approveApplication(targetAppId);
+
+    // 2. Extract classification prefix type (e.g., AGT, MXW, RFE)
+    const prefix = currentCode.match(/^[A-Z]+/)?.[0] || '';
+    if (!prefix) return;
+
+    // 3. Find other conflicting unapproved applications requested for this exact same machine unit code
+    const secondaryRequests = rawQueue.filter(app => app.id !== targetAppId && app.equipmentCode === currentCode);
+    
+    if (secondaryRequests.length > 0) {
+      // Extract numeric suffix sequences to scan across alternative capacity thresholds
+      const currentNumericPart = parseInt(currentCode.replace(/^\D+/g, ''), 10) || 100;
+      
+      secondaryRequests.forEach((pendingApp, index) => {
+        let assignedAlternateCode = currentCode;
+        const totalCapLimit = getAssetTotalCapacity(currentCode);
+
+        // Dynamic sequence generation: try cascading to alternative available hardware units
+        for (let offset = 1; offset <= totalCapLimit; offset++) {
+          const alternativeNumericCandidate = currentNumericPart + offset;
+          const candidateCode = `${prefix}${alternativeNumericCandidate}`;
+
+          // Check if anyone else is actively holding or awaiting this specific candidate device code
+          const codeIsBusyInQueue = rawQueue.some(q => q.equipmentCode === candidateCode);
+          const codeIsBusyInPossession = rawLog.some(l => l.equipmentCode === candidateCode && !(l.isReturned && l.returnDetails));
+
+          if (!codeIsBusyInQueue && !codeIsBusyInPossession) {
+            assignedAlternateCode = candidateCode;
+            break; 
+          }
+        }
+
+        // Mutate the conflicting configuration path on the fly
+        if (assignedAlternateCode !== currentCode) {
+          pendingApp.equipmentCode = assignedAlternateCode;
+        }
+      });
+      forceSyncUpdate({});
+    }
+  };
 
   const handleInstantCheck = (e: React.FormEvent) => {
     e.preventDefault();
@@ -226,9 +268,7 @@ export default function ApplicationStatus({ userRole, currentUserEmail = "" }: A
         </div>
       </div>
 
-      {/* ======================================================================= */}
-      {/* SPREADSHEET LOG: THREE PIPELINES EQUIPMENT LIFECYCLE AUDITING ENGINE    */}
-      {/* ======================================================================= */}
+      {/* SPREADSHEET LOG TABLE VIEW */}
       {isStaff && (
         <div className="bg-white rounded-xl border border-slate-200 overflow-hidden shadow-sm">
           <div className="px-5 py-3.5 border-b border-slate-100 flex items-center justify-between bg-slate-900 text-white">
@@ -295,9 +335,8 @@ export default function ApplicationStatus({ userRole, currentUserEmail = "" }: A
           )}
         </div>
       )}
-      {/* ======================================================================= */}
 
-      {/* CONTROL PANEL & RISK CHECKER */}
+      {/* ORIGINAL STAFF CONTROL PANEL / BACKGROUND CHECKER */}
       {isStaff && (
         <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
           <div className="md:col-span-2 bg-gradient-to-r from-utm-maroon to-[#600018] rounded-xl p-5 text-white shadow-sm flex flex-col justify-between">
@@ -381,7 +420,7 @@ export default function ApplicationStatus({ userRole, currentUserEmail = "" }: A
         </div>
       )}
 
-      {/* STAGE 1: INCOMING VERIFICATION QUEUE */}
+      {/* STAGE 1 QUEUE WITH MULTI-STUDENT AUTO-REDIRECT SYSTEM */}
       <div className="bg-white rounded-xl border border-gray-200 overflow-hidden shadow-sm">
         <div className="px-5 py-3.5 border-b border-gray-100 flex items-center gap-2 bg-gray-50/50">
           <Clock className="w-4 h-4 text-utm-maroon" />
@@ -443,7 +482,7 @@ export default function ApplicationStatus({ userRole, currentUserEmail = "" }: A
                         {isStaff ? (
                           <div className="flex items-center justify-center gap-2">
                             <button
-                              onClick={() => approveApplication(app.id)}
+                              onClick={() => handleStaffApproveWithRedirect(app.id, app.equipmentCode)}
                               disabled={isFlagged}
                               className={`px-3 py-1.5 rounded-lg text-[10px] font-bold text-white shadow-sm transition-all ${
                                 isFlagged ? 'bg-gray-200 text-gray-400 cursor-not-allowed shadow-none' : 'bg-emerald-600 hover:bg-emerald-700'
@@ -478,7 +517,7 @@ export default function ApplicationStatus({ userRole, currentUserEmail = "" }: A
         )}
       </div>
 
-      {/* STAGE 2: PROCESSED APPLICATIONS LOG */}
+      {/* STAGE 2 LEGER TRACKER */}
       <div className="bg-white rounded-xl border border-gray-200 overflow-hidden shadow-sm">
         <div className="px-5 py-3.5 border-b border-gray-100 flex items-center gap-2 bg-emerald-50/20">
           <CheckCircle className="w-4 h-4 text-emerald-600" />
@@ -600,7 +639,7 @@ export default function ApplicationStatus({ userRole, currentUserEmail = "" }: A
         )}
       </div>
 
-      {/* STAGE 3: PERSISTENT HISTORICAL LEDGER */}
+      {/* STAGE 3 ARCHIVAL DATA LOG */}
       <div className="bg-white rounded-xl border border-gray-200 overflow-hidden shadow-sm">
         <div className="px-5 py-3 border-b border-gray-100 bg-gray-50/50">
           <h4 className="font-bold text-gray-800 text-xs">
@@ -650,7 +689,7 @@ export default function ApplicationStatus({ userRole, currentUserEmail = "" }: A
         )}
       </div>
 
-      {/* RETURN MODAL OVERLAY */}
+      {/* POPUP SUBMISSION PROTOCOL MODAL */}
       {activeReturnAppId && (
         <div className="fixed inset-0 z-50 bg-black/40 backdrop-blur-xs flex items-center justify-center p-4">
           <div className="bg-white rounded-xl border border-gray-200 max-w-sm w-full p-5 space-y-4 shadow-xl">
