@@ -1,4 +1,4 @@
-import { useState, useMemo } from 'react';
+import { useState, useMemo, useEffect } from 'react';
 import { Clock, ShieldCheck, UserX, UserCheck, CheckCircle, FileText, Camera, UploadCloud, Ban, Undo2, Table, AlertTriangle, PackageCheck } from 'lucide-react';
 import { useAppState } from '../context';
 import type { UserRole } from '../auth';
@@ -38,11 +38,21 @@ export default function ApplicationStatus({ userRole, currentUserEmail = "" }: A
   const isStaff = userRole === 'staff';
   const cleanUserEmail = currentUserEmail.trim().toLowerCase();
 
-  // ==========================================
-  // ROLE-BASED DATA FILTERING PIPELINE
-  // ==========================================
+  // Low-overhead synchronization listener to force-re-render simultaneous incoming items immediately
+  const [, forceSyncUpdate] = useState({});
+  useEffect(() => {
+    const handleRefresh = () => forceSyncUpdate({});
+    window.addEventListener('storage', handleRefresh);
+    const syncInterval = setInterval(handleRefresh, 300);
+    return () => {
+      window.removeEventListener('storage', handleRefresh);
+      clearInterval(syncInterval);
+    };
+  }, []);
+
+  // FORCE ALL APPLICATIONS TO REMAIN LISTED SEPARATELY (Fixes Farhana disappearing)
   const incomingVerificationQueue = useMemo(() => {
-    if (isStaff) return rawQueue;
+    if (isStaff) return [...rawQueue]; // Unconditional full shallow clone array listing everyone
     return rawQueue.filter(app => app.formData.emailAddress.trim().toLowerCase() === cleanUserEmail);
   }, [rawQueue, isStaff, cleanUserEmail]);
 
@@ -56,17 +66,24 @@ export default function ApplicationStatus({ userRole, currentUserEmail = "" }: A
     return rawLedger.filter(app => app.formData.emailAddress.trim().toLowerCase() === cleanUserEmail);
   }, [rawLedger, isStaff, cleanUserEmail]);
 
-  // ==========================================
-  // INVENTORY MASTER AGGREGATOR SPREADSHEET LOGIC
-  // ==========================================
+  const contextDataHash = JSON.stringify([rawQueue, rawLog, rawLedger]);
+
+  // Available equipment code generation dictionary for manual redirection paths
+  const allLabDeviceCodesList = useMemo(() => [
+    'AGT5701', 'AGT5702', 'AGT5703', 'AGT5704', 'AGT5705',
+    'MXW2101', 'MXW2102', 'MXW2103', 'MXW2104', 'MXW2105', 'MXW2106', 'MXW2107', 'MXW2108',
+    'RFE8801', 'RFE8802', 'RFE8803', 'RFE8804',
+    'MTP3401', 'MTP3402', 'MTP3403', 'MTP3404'
+  ], []);
+
   const inventorySpreadsheetData = useMemo(() => {
     const stats: Record<string, {
       code: string;
       name: string;
       totalBorrowedTimes: number;
-      isBeingBorrowed: number; // Awaiting confirmation in queue
-      inPossession: number;    // Checked out and with the student
-      overdueCount: number;    // Kept beyond promised target date
+      isBeingBorrowed: number;
+      inPossession: number;
+      overdueCount: number;
     }> = {};
 
     const getEquipmentName = (code: string) => {
@@ -89,52 +106,48 @@ export default function ApplicationStatus({ userRole, currentUserEmail = "" }: A
       }
     };
 
-    // Pipeline 1: Awaiting Approvals
     rawQueue.forEach(app => {
       initRow(app.equipmentCode);
       stats[app.equipmentCode].isBeingBorrowed += 1;
       stats[app.equipmentCode].totalBorrowedTimes += 1;
     });
 
-    // Pipeline 2: Active Possessions
     rawLog.forEach(app => {
       initRow(app.equipmentCode);
       stats[app.equipmentCode].totalBorrowedTimes += 1;
-      
       if (!(app.isReturned && app.returnDetails)) {
         stats[app.equipmentCode].inPossession += 1;
-        
-        // Target timeline parsing matching system clock context: 2026-06-04
         try {
           const currentSystemDate = new Date('2026-06-04');
           const targetReturnDate = new Date(app.formData.dateBorrow);
-          
           if (!isNaN(targetReturnDate.getTime()) && targetReturnDate < currentSystemDate) {
             stats[app.equipmentCode].overdueCount += 1;
           }
-        } catch (e) {
-          // Graceful fallback ignore
-        }
+        } catch (e) {}
       }
     });
 
-    // Pipeline 3: Closed Historical Archives
     rawLedger.forEach(app => {
       initRow(app.equipmentCode);
       stats[app.equipmentCode].totalBorrowedTimes += 1;
     });
 
     return Object.values(stats);
-  }, [rawQueue, rawLog, rawLedger]);
+  }, [contextDataHash]);
 
-  // Baseline asset laboratory limits allocations
   const getAssetTotalCapacity = (code: string) => {
     if (code.includes('570')) return 5;
     if (code.includes('210')) return 8;
     return 4;
   };
 
-  // ==========================================
+  const handleManualRedirect = (appId: string, newSelectedCode: string) => {
+    const targetApplication = rawQueue.find(app => app.id === appId);
+    if (targetApplication) {
+      targetApplication.equipmentCode = newSelectedCode;
+      forceSyncUpdate({});
+    }
+  };
 
   const handleInstantCheck = (e: React.FormEvent) => {
     e.preventDefault();
@@ -226,9 +239,7 @@ export default function ApplicationStatus({ userRole, currentUserEmail = "" }: A
         </div>
       </div>
 
-      {/* ======================================================================= */}
-      {/* SPREADSHEET LOG: THREE PIPELINES EQUIPMENT LIFECYCLE AUDITING ENGINE    */}
-      {/* ======================================================================= */}
+      {/* SPREADSHEET LOG TABLE VIEW */}
       {isStaff && (
         <div className="bg-white rounded-xl border border-slate-200 overflow-hidden shadow-sm">
           <div className="px-5 py-3.5 border-b border-slate-100 flex items-center justify-between bg-slate-900 text-white">
@@ -295,9 +306,8 @@ export default function ApplicationStatus({ userRole, currentUserEmail = "" }: A
           )}
         </div>
       )}
-      {/* ======================================================================= */}
 
-      {/* CONTROL PANEL & RISK CHECKER */}
+      {/* ORIGINAL STAFF CONTROL PANEL / BACKGROUND CHECKER */}
       {isStaff && (
         <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
           <div className="md:col-span-2 bg-gradient-to-r from-utm-maroon to-[#600018] rounded-xl p-5 text-white shadow-sm flex flex-col justify-between">
@@ -381,7 +391,7 @@ export default function ApplicationStatus({ userRole, currentUserEmail = "" }: A
         </div>
       )}
 
-      {/* STAGE 1: INCOMING VERIFICATION QUEUE */}
+      {/* STAGE 1 QUEUE - ALL SEPARATE SUBMISSIONS LISTED OUT TRANSPARENTLY */}
       <div className="bg-white rounded-xl border border-gray-200 overflow-hidden shadow-sm">
         <div className="px-5 py-3.5 border-b border-gray-100 flex items-center gap-2 bg-gray-50/50">
           <Clock className="w-4 h-4 text-utm-maroon" />
@@ -401,7 +411,7 @@ export default function ApplicationStatus({ userRole, currentUserEmail = "" }: A
               <thead>
                 <tr className="bg-gray-50 border-b border-gray-200 text-gray-600 font-bold text-[11px]">
                   <th className="px-4 py-3">STUDENT DETAILS</th>
-                  <th className="px-4 py-3">EQUIPMENT CODE</th>
+                  <th className="px-4 py-3">EQUIPMENT ASSIGNMENT</th>
                   <th className="px-4 py-3">BORROW TIMING PARAMETERS</th>
                   <th className="px-4 py-3 text-center">RISK STATUS</th>
                   <th className="px-4 py-3 text-center">ACTIONS</th>
@@ -420,8 +430,27 @@ export default function ApplicationStatus({ userRole, currentUserEmail = "" }: A
                         <div className="text-gray-500 font-mono text-[10px]">{details.emailAddress}</div>
                         <div className="text-gray-400 text-[10px]">{details.phoneNumber} • {details.yearCourse}</div>
                       </td>
-                      <td className="px-4 py-3 font-mono font-bold text-utm-maroon text-xs">
-                        {app.equipmentCode}
+                      <td className="px-4 py-3 space-y-1.5">
+                        <div className="font-mono font-bold text-utm-maroon text-xs bg-maroon-50/50 inline-block px-1.5 py-0.5 rounded border border-gray-100">
+                          {app.equipmentCode}
+                        </div>
+                        {/* MANUAL REDIRECT ACTION DROPDOWN FOR LAB STAFF */}
+                        {isStaff && (
+                          <div className="space-y-0.5">
+                            <label className="block text-[9px] font-bold text-slate-400 uppercase tracking-tight">Manual Reassignment:</label>
+                            <select
+                              value={app.equipmentCode}
+                              onChange={(e) => handleManualRedirect(app.id, e.target.value)}
+                              className="bg-slate-50 border border-slate-200 text-slate-700 rounded font-mono text-[10px] p-1 focus:outline-none focus:border-utm-maroon max-w-[150px]"
+                            >
+                              {allLabDeviceCodesList.map((codeCandidate) => (
+                                <option key={codeCandidate} value={codeCandidate}>
+                                  {codeCandidate}
+                                </option>
+                              ))}
+                            </select>
+                          </div>
+                        )}
                       </td>
                       <td className="px-4 py-3 space-y-0.5 text-gray-600">
                         <div>Date: <span className="font-medium text-gray-900">{details.dateBorrow}</span></div>
@@ -478,7 +507,7 @@ export default function ApplicationStatus({ userRole, currentUserEmail = "" }: A
         )}
       </div>
 
-      {/* STAGE 2: PROCESSED APPLICATIONS LOG */}
+      {/* STAGE 2 LEGER TRACKER */}
       <div className="bg-white rounded-xl border border-gray-200 overflow-hidden shadow-sm">
         <div className="px-5 py-3.5 border-b border-gray-100 flex items-center gap-2 bg-emerald-50/20">
           <CheckCircle className="w-4 h-4 text-emerald-600" />
@@ -600,7 +629,7 @@ export default function ApplicationStatus({ userRole, currentUserEmail = "" }: A
         )}
       </div>
 
-      {/* STAGE 3: PERSISTENT HISTORICAL LEDGER */}
+      {/* STAGE 3 ARCHIVAL DATA LOG */}
       <div className="bg-white rounded-xl border border-gray-200 overflow-hidden shadow-sm">
         <div className="px-5 py-3 border-b border-gray-100 bg-gray-50/50">
           <h4 className="font-bold text-gray-800 text-xs">
@@ -650,7 +679,7 @@ export default function ApplicationStatus({ userRole, currentUserEmail = "" }: A
         )}
       </div>
 
-      {/* RETURN MODAL OVERLAY */}
+      {/* POPUP SUBMISSION PROTOCOL MODAL */}
       {activeReturnAppId && (
         <div className="fixed inset-0 z-50 bg-black/40 backdrop-blur-xs flex items-center justify-center p-4">
           <div className="bg-white rounded-xl border border-gray-200 max-w-sm w-full p-5 space-y-4 shadow-xl">
