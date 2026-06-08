@@ -138,14 +138,13 @@ export default function ApplicationStatus({ userRole, currentUserEmail = "" }: A
   const handleStaffApproveWithRedirect = (targetAppId: string, currentCode: string) => {
     // 1. Approve the upper target selection first
     approveApplication(targetAppId);
-
+    
     // 2. Extract classification prefix type (e.g., AGT, MXW, RFE)
     const prefix = currentCode.match(/^[A-Z]+/)?.[0] || '';
     if (!prefix) return;
 
     // 3. Find other conflicting unapproved applications requested for this exact same machine unit code
     const secondaryRequests = rawQueue.filter(app => app.id !== targetAppId && app.equipmentCode === currentCode);
-    
     if (secondaryRequests.length > 0) {
       // Extract numeric suffix sequences to scan across alternative capacity thresholds
       const currentNumericPart = parseInt(currentCode.replace(/^\D+/g, ''), 10) || 100;
@@ -188,7 +187,6 @@ export default function ApplicationStatus({ userRole, currentUserEmail = "" }: A
   const handleImageUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
     if (!file) return;
-
     if (file.size < 20000) {
       setReturnError('Image quality too low. Please snap a clear, high-resolution photo.');
       return;
@@ -306,7 +304,6 @@ export default function ApplicationStatus({ userRole, currentUserEmail = "" }: A
                   {inventorySpreadsheetData.map((row) => {
                     const totalCap = getAssetTotalCapacity(row.code);
                     const stockRemaining = Math.max(0, totalCap - row.inPossession);
-
                     return (
                       <tr key={row.code} className="hover:bg-slate-50/80 transition-colors">
                         <td className="px-4 py-2.5 font-mono font-bold text-utm-maroon text-xs">{row.code}</td>
@@ -451,7 +448,6 @@ export default function ApplicationStatus({ userRole, currentUserEmail = "" }: A
                   const details = app.formData;
                   const studentEmail = details.emailAddress.toLowerCase().trim();
                   const isFlagged = blacklistedEmails.includes(studentEmail);
-                  
                   return (
                     <tr key={app.id} className="border-b border-gray-100 hover:bg-gray-50/40 transition-colors">
                       <td className="px-4 py-3 space-y-0.5">
@@ -517,7 +513,7 @@ export default function ApplicationStatus({ userRole, currentUserEmail = "" }: A
         )}
       </div>
 
-      {/* STAGE 2 LEGER TRACKER */}
+      {/* STAGE 2 LEDGER TRACKER */}
       <div className="bg-white rounded-xl border border-gray-200 overflow-hidden shadow-sm">
         <div className="px-5 py-3.5 border-b border-gray-100 flex items-center gap-2 bg-emerald-50/20">
           <CheckCircle className="w-4 h-4 text-emerald-600" />
@@ -547,7 +543,6 @@ export default function ApplicationStatus({ userRole, currentUserEmail = "" }: A
                 {processedApplicationsLog.map((app) => {
                   const details = app.formData;
                   const isReturnSubmitted = app.isReturned && !!app.returnDetails;
-
                   let isOverdue = false;
                   try {
                     const currentSystemDate = new Date('2026-06-04');
@@ -556,78 +551,49 @@ export default function ApplicationStatus({ userRole, currentUserEmail = "" }: A
                       isOverdue = true;
                     }
                   } catch (e) {}
-
                   return (
                     <tr key={app.id} className={`border-b border-gray-100 transition-colors ${isOverdue ? 'bg-red-50/50 hover:bg-red-50' : 'hover:bg-gray-50/40'}`}>
                       <td className="px-4 py-3">
                         <div className="font-bold text-gray-900 uppercase">{details.fullName}</div>
                         <div className="text-gray-500 font-mono text-[10px]">{details.emailAddress}</div>
                       </td>
-                      <td className="px-4 py-3 font-mono font-bold text-utm-maroon text-xs">
+                      <td className="px-4 py-3 font-mono font-bold text-slate-800 text-xs">
                         {app.equipmentCode}
                       </td>
-                      <td className="px-4 py-3 space-y-1">
-                        {isReturnSubmitted ? (
-                          <div className="bg-orange-50/70 border border-orange-100 rounded-md p-2 space-y-0.5 text-[10px]">
-                            <div>Returned: <span className="font-bold text-gray-900">{app.returnDetails?.dateReturned}</span></div>
-                            <div>Witness Staff: <span className="font-bold text-gray-900 uppercase">{app.returnDetails?.overseeingStaff}</span></div>
-                            <div className="pt-1">
-                              <a href={app.returnDetails?.equipmentImage} target="_blank" rel="noreferrer" className="text-utm-maroon underline font-bold flex items-center gap-0.5 hover:text-utm-maroon-dark">
-                                <Camera className="w-3 h-3" /> View Photo Proof payload
-                              </a>
-                            </div>
-                          </div>
-                        ) : (
-                          <div className="text-[10px] text-gray-600">
-                            <div>Borrowed on: <span className="font-medium text-gray-900">{details.dateBorrow}</span></div>
-                            <div>Expected Return: <span className={`font-bold ${isOverdue ? 'text-red-600 underline' : 'text-gray-900'}`}>{details.returnTime}</span></div>
-                          </div>
+                      <td className="px-4 py-3 text-gray-600 space-y-0.5">
+                        <div>Borrowed: <span className="font-semibold text-slate-900">{details.dateBorrow}</span></div>
+                        {isReturnSubmitted && (
+                          <div className="text-emerald-700 font-medium">Returned: {app.returnDetails.dateReturned} (Overseen by: {app.returnDetails.overseeingStaff})</div>
                         )}
                       </td>
                       <td className="px-4 py-3 text-center">
                         {isReturnSubmitted ? (
-                          <span className="inline-flex items-center gap-1 bg-amber-50 border border-amber-200 text-amber-800 px-2 py-0.5 rounded font-bold text-[9px] animate-pulse">
-                            🔄 RETURN PENDING AUDIT
-                          </span>
-                        ) : isOverdue ? (
-                          <span className="inline-flex items-center gap-1 bg-red-100 border border-red-300 text-red-700 px-2 py-0.5 rounded font-black text-[9px] animate-bounce">
-                            ⚠️ OVERDUE CRITICAL
+                          <span className="inline-flex items-center gap-1 px-2.5 py-1 text-[10px] font-bold bg-amber-50 text-amber-800 border border-amber-200 rounded-full animate-pulse">
+                            ⏳ PENDING STAFF CONFIRMATION
                           </span>
                         ) : (
-                          <span className="inline-flex items-center gap-1 bg-emerald-50 border border-emerald-100 text-emerald-700 px-2 py-0.5 rounded font-bold text-[9px]">
-                            ✓ IN STUDENT POSSESSION
+                          <span className={`inline-flex items-center gap-1 px-2.5 py-1 text-[10px] font-bold rounded-full ${isOverdue ? 'bg-red-100 text-red-800 border border-red-300 animate-bounce' : 'bg-blue-50 text-blue-700 border border-blue-200'}`}>
+                            {isOverdue ? '⚠️ EXPIRED POSSESSION LIMIT' : '✓ POSSESSED / IN USE'}
                           </span>
                         )}
                       </td>
                       <td className="px-4 py-3 text-center">
                         {isStaff ? (
-                          <div className="flex justify-center">
-                            <button
-                              onClick={() => approveReturnRequest(app.id)}
-                              disabled={!isReturnSubmitted}
-                              className={`px-3 py-1.5 rounded-lg text-[10px] font-bold text-white shadow-sm transition-all ${
-                                isReturnSubmitted 
-                                  ? 'bg-orange-600 hover:bg-orange-700' 
-                                  : 'bg-gray-100 text-gray-400 cursor-not-allowed shadow-none'
-                              }`}
-                            >
-                              Verify & Close Session
-                            </button>
-                          </div>
+                          <button
+                            disabled={!isReturnSubmitted}
+                            onClick={() => approveReturnRequest(app.id)}
+                            className={`px-3 py-1.5 rounded-lg text-[10px] font-bold text-white shadow-sm transition-all ${!isReturnSubmitted ? 'bg-gray-200 text-gray-400 cursor-not-allowed shadow-none' : 'bg-utm-maroon hover:bg-utm-maroon-dark'}`}
+                          >
+                            Approve return
+                          </button>
                         ) : (
-                          <div className="flex justify-center">
-                            {isReturnSubmitted ? (
-                              <span className="text-gray-400 italic text-[10px]">Awaiting Staff Signoff...</span>
-                            ) : (
-                              <button
-                                type="button"
-                                onClick={() => setActiveReturnAppId(app.id)}
-                                className="bg-gray-900 hover:bg-gray-800 text-white font-bold px-2.5 py-1 rounded transition-all text-[10px]"
-                              >
-                                Dispatch Return Protocol Form
-                              </button>
-                            )}
-                          </div>
+                          <button
+                            disabled={isReturnSubmitted}
+                            onClick={() => setActiveReturnAppId(app.id)}
+                            className={`px-3 py-1.5 rounded-lg text-[10px] font-bold transition-all ${isReturnSubmitted ? 'bg-gray-100 text-gray-400 cursor-not-allowed' : 'bg-gray-900 hover:bg-gray-800 text-white'}`}
+                          >
+                            {isReturnSubmitted ? 'Awaiting sign-off' : 'Initiate Return Pipeline'}
+                          </button>
                         )}
                       </td>
                     </tr>
@@ -639,98 +605,98 @@ export default function ApplicationStatus({ userRole, currentUserEmail = "" }: A
         )}
       </div>
 
-      {/* STAGE 3 ARCHIVAL DATA LOG */}
+      {/* STAGE 3 ARCHIVE LEDGER */}
       <div className="bg-white rounded-xl border border-gray-200 overflow-hidden shadow-sm">
-        <div className="px-5 py-3 border-b border-gray-100 bg-gray-50/50">
-          <h4 className="font-bold text-gray-800 text-xs">
-            {isStaff ? 'Stage 3: Permanent Closed Transaction Ledger' : 'My Archival Return History'}
-          </h4>
+        <div className="px-5 py-3.5 border-b border-gray-100 flex items-center gap-2 bg-indigo-50/20">
+          <Undo2 className="w-4 h-4 text-indigo-600" />
+          <h3 className="font-bold text-gray-900 text-xs">
+            {isStaff ? `Stage 3: Permanent Archive Database (${historicalLedger.length})` : 'My Closed Archive logs'}
+          </h3>
         </div>
+
         {historicalLedger.length === 0 ? (
-          <div className="p-6 text-center text-gray-400 text-[11px]">
-            <FileText className="w-8 h-8 mx-auto mb-1 opacity-40" />
-            No permanently archived closed sessions tracked.
+          <div className="p-8 text-center text-gray-400">
+            <FileText className="w-8 h-8 mx-auto mb-2 opacity-40" />
+            <p className="font-medium">Archive vault is currently empty.</p>
           </div>
         ) : (
-          <div className="overflow-x-auto max-h-60 overflow-y-auto">
-            <table className="w-full text-left border-collapse text-[11px]">
+          <div className="overflow-x-auto">
+            <table className="w-full text-left border-collapse">
               <thead>
-                <tr className="bg-gray-50 border-b border-gray-200 text-gray-500 font-bold">
-                  <th className="px-4 py-2.5">STUDENT BENEFICIARY</th>
-                  <th className="px-4 py-2.5">EQUIPMENT</th>
-                  <th className="px-4 py-2.5">LIFECYCLE SIGN-OFF TIMESTAMPS</th>
-                  <th className="px-4 py-2.5 text-center">PERMANENT LEDGER STATUS</th>
+                <tr className="bg-gray-50 border-b border-gray-200 text-gray-600 font-bold text-[11px]">
+                  <th className="px-4 py-3">ARCHIVED APPLICANT</th>
+                  <th className="px-4 py-3">EQUIPMENT DATA</th>
+                  <th className="px-4 py-3">TIMELINE SPECS</th>
+                  <th className="px-4 py-3 text-center">AUDIT STATE</th>
                 </tr>
               </thead>
               <tbody>
-                {historicalLedger.map((log) => (
-                  <tr key={log.id} className="border-b border-gray-50 hover:bg-gray-50/20">
-                    <td className="px-4 py-2.5 font-medium text-gray-700 uppercase">
-                      {log.formData.fullName}
-                      <span className="block text-[9px] font-mono text-gray-400 lowercase">{log.formData.emailAddress}</span>
-                    </td>
-                    <td className="px-4 py-2.5 font-mono text-gray-600 font-bold">{log.equipmentCode}</td>
-                    <td className="px-4 py-2.5 text-gray-500 space-y-0.5 text-[10px]">
-                      <div>Borrowed Date: <span className="text-gray-900 font-mono">{log.formData.dateBorrow}</span></div>
-                      {log.returnDetails && (
-                        <div>Returned Date: <span className="text-emerald-700 font-mono font-bold">{log.returnDetails.dateReturned}</span></div>
-                      )}
-                    </td>
-                    <td className="px-4 py-2.5 text-center">
-                      <span className="inline-flex items-center gap-1 text-blue-600 bg-blue-50 border border-blue-100 px-2 py-0.5 rounded font-bold text-[9px]">
-                        <Undo2 className="w-3 h-3" /> VERIFIED RETURN ARCHIVED
-                      </span>
-                    </td>
-                  </tr>
-                ))}
+                {historicalLedger.map((app) => {
+                  const details = app.formData;
+                  return (
+                    <tr key={app.id} className="border-b border-gray-100 hover:bg-gray-50/20 transition-colors">
+                      <td className="px-4 py-3 font-medium text-gray-900 uppercase">{details.fullName}</td>
+                      <td className="px-4 py-3 font-mono font-bold text-gray-500 text-xs">{app.equipmentCode}</td>
+                      <td className="px-4 py-3 text-gray-500">Completed session return safely checked out.</td>
+                      <td className="px-4 py-3 text-center">
+                        <span className="inline-flex items-center gap-1 bg-indigo-50 border border-indigo-100 text-indigo-700 px-2 py-0.5 rounded font-bold text-[9px]">
+                          ✓ ARCHIVED / LOCKED
+                        </span>
+                      </td>
+                    </tr>
+                  );
+                })}
               </tbody>
             </table>
           </div>
         )}
       </div>
 
-      {/* POPUP SUBMISSION PROTOCOL MODAL */}
+      {/* CONDITIONAL POPUP MODAL DIALOG CONTAINER FOR RETURN PIPE */}
       {activeReturnAppId && (
-        <div className="fixed inset-0 z-50 bg-black/40 backdrop-blur-xs flex items-center justify-center p-4">
-          <div className="bg-white rounded-xl border border-gray-200 max-w-sm w-full p-5 space-y-4 shadow-xl">
-            <div>
-              <h4 className="text-sm font-bold text-gray-900">Equipment Return Upkeep Protocol</h4>
-              <p className="text-[10px] text-gray-500">Provide verified staff audit parameters and structural image upload logs to avoid blacklists.</p>
+        <div className="fixed inset-0 bg-black/60 backdrop-blur-xs flex items-center justify-center p-4 z-50 animate-fadeIn">
+          <div className="bg-white rounded-2xl max-w-sm w-full p-5 shadow-2xl border border-gray-100 space-y-4">
+            <div className="flex items-center gap-2 border-b border-gray-100 pb-3">
+              <Camera className="w-5 h-5 text-utm-maroon" />
+              <div>
+                <h4 className="font-bold text-gray-900 text-sm">Upload Return Snapshot</h4>
+                <p className="text-[10px] text-gray-500">Provide clear imaging proof of hardware integrity validation.</p>
+              </div>
             </div>
 
             <form onSubmit={handleReturnSubmit} className="space-y-3">
-              <div>
-                <label className="block text-[10px] font-bold text-gray-700 mb-1">Date Returned</label>
+              <div className="space-y-1">
+                <label className="text-[10px] font-bold text-gray-700 block">Date of Equipment Delivery Return</label>
                 <input
                   type="date"
                   value={returnForm.dateReturned}
-                  onChange={(e) => setReturnForm({ ...returnForm, dateReturned: e.target.value })}
-                  className="w-full border border-gray-200 rounded-lg p-2 focus:outline-none focus:border-utm-maroon"
+                  onChange={(e) => setReturnForm(prev => ({ ...prev, dateReturned: e.target.value }))}
+                  className="w-full border border-gray-200 rounded-lg p-2 font-medium focus:outline-none focus:border-utm-maroon"
                 />
               </div>
 
-              <div>
-                <label className="block text-[10px] font-bold text-gray-700 mb-1">Overseeing Staff Name</label>
+              <div className="space-y-1">
+                <label className="text-[10px] font-bold text-gray-700 block">Overseeing Laboratory Attendant Staff</label>
                 <input
                   type="text"
-                  placeholder="e.g. INCIK RAZALI"
+                  placeholder="e.g., Dr. Farhana / Ts. Naqiyah"
                   value={returnForm.overseeingStaff}
-                  onChange={(e) => setReturnForm({ ...returnForm, overseeingStaff: e.target.value.toUpperCase() })}
-                  className="w-full border border-gray-200 rounded-lg p-2 focus:outline-none focus:border-utm-maroon uppercase"
+                  onChange={(e) => setReturnForm(prev => ({ ...prev, overseeingStaff: e.target.value }))}
+                  className="w-full border border-gray-200 rounded-lg p-2 font-medium focus:outline-none focus:border-utm-maroon"
                 />
               </div>
 
-              <div>
-                <label className="block text-[10px] font-bold text-gray-700 mb-1">Upload Component Photo (High-Quality Check)</label>
-                <div className="relative border-2 border-dashed border-gray-200 rounded-lg p-4 text-center hover:bg-gray-50 transition-colors">
+              <div className="space-y-1">
+                <label className="text-[10px] font-bold text-gray-700 block">Hardware Physical Condition Image</label>
+                <div className="border-2 border-dashed border-gray-200 rounded-xl p-4 text-center relative hover:bg-gray-50 transition-colors cursor-pointer">
                   <input
                     type="file"
                     accept="image/*"
                     onChange={handleImageUpload}
-                    className="absolute inset-0 opacity-0 cursor-pointer"
+                    className="absolute inset-0 opacity-0 cursor-pointer w-full h-full"
                   />
                   {returnForm.equipmentImage ? (
-                    <div className="space-y-1">
+                    <div className="space-y-2">
                       <p className="text-[10px] text-emerald-600 font-bold flex items-center justify-center gap-1">✓ File Loaded Successfully</p>
                       <img src={returnForm.equipmentImage} alt="Preview" className="h-16 mx-auto object-cover rounded border" />
                     </div>
@@ -764,6 +730,7 @@ export default function ApplicationStatus({ userRole, currentUserEmail = "" }: A
           </div>
         </div>
       )}
+
     </div>
   );
 }
