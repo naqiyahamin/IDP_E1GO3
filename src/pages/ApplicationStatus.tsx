@@ -1,5 +1,6 @@
-import { useState, useMemo } from 'react';
+import { useState, useMemo, useEffect } from 'react';
 import { Clock, ShieldCheck, UserX, UserCheck, CheckCircle, FileText, Camera, UploadCloud, Ban, Undo2, Table, AlertTriangle, PackageCheck, Wrench, UserMinus, Phone, XCircle, CopyCheck, SendHorizontal } from 'lucide-react';
+import emailjs from '@emailjs/browser';
 import { useAppState } from '../context';
 import type { UserRole } from '../auth';
 
@@ -42,6 +43,44 @@ export default function ApplicationStatus({ userRole, currentUserEmail = "" }: A
 
   const isStaff = userRole === 'staff';
   const cleanUserEmail = currentUserEmail.trim().toLowerCase();
+
+  // ========================================================
+  // AUTOMATED EMAILJS BACKGROUND AUTOMATION ENGINE
+  // ========================================================
+  useEffect(() => {
+    // This automation loop acts as a daemon background runner for staff roles
+    if (!isStaff) return;
+
+    const dispatchAutomatedNotifications = async () => {
+      const currentSystemDate = new Date('2026-06-04');
+
+      for (const app of processedApplicationsLog) {
+        const isReturnSubmitted = app.isReturned && !!app.returnDetails;
+        const targetReturnDate = new Date(app.formData.dateBorrow);
+
+        // Scan baseline boundaries for critical overdue markers
+        if (!isReturnSubmitted && !isNaN(targetReturnDate.getTime()) && targetReturnDate < currentSystemDate) {
+          try {
+            await emailjs.send(
+              'service_53rcbha',         // Your valid EmailJS Service ID
+              'YOUR_TEMPLATE_ID_HERE',   // Place your custom Template ID here
+              {
+                studentName: app.formData.fullName,
+                equipmentCode: app.equipmentCode,
+                to_email: app.formData.emailAddress 
+              },
+              'YOUR_PUBLIC_KEY_HERE'     // Place your Account Public Key here
+            );
+            console.log(`🤖 EmailJS Auto-Alert successfully delivered to: ${app.formData.fullName}`);
+          } catch (error) {
+            console.error("Automated Notification pipeline relay failure:", error);
+          }
+        }
+      }
+    };
+
+    dispatchAutomatedNotifications();
+  }, [processedApplicationsLog, isStaff]);
 
   // ==========================================
   // ROLE-BASED DATA FILTERING PIPELINE
@@ -244,7 +283,6 @@ export default function ApplicationStatus({ userRole, currentUserEmail = "" }: A
     });
   };
 
-  // Triggers the popup configuration panel for pushing mobile SMS
   const triggerSmsSimulationModal = (studentName: string, phone: string, equipmentCode: string) => {
     setSmsNotificationPayload({
       isOpen: true,
