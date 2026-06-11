@@ -45,3 +45,15 @@ export function verifyCredentials(email: string, password: string): AllowedUser 
 
   return null;
 }
+
+/**
+ * Dynamically rewrites account registry passcode keys to synchronize with Forgot Password recovery mechanisms
+ */
+export function updateUserPasswordInRegistry(email: string, newPassword: string): boolean {
+  const normalizedEmail = email.trim().toLowerCase();
+  if (ALLOWED_USERS[normalizedEmail]) {
+    ALLOWED_USERS[normalizedEmail].password = newPassword;
+    return true;
+  }
+  return false;
+}
