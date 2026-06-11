@@ -1,5 +1,5 @@
 import { useState, useMemo } from 'react';
-import { Clock, ShieldCheck, UserX, UserCheck, CheckCircle, FileText, Camera, UploadCloud, Ban, Undo2, Table, AlertTriangle, PackageCheck, Wrench, UserMinus } from 'lucide-react';
+import { Clock, ShieldCheck, UserX, UserCheck, CheckCircle, FileText, Camera, UploadCloud, Ban, Undo2, Table, AlertTriangle, PackageCheck, Wrench, UserMinus, Phone, XCircle } from 'lucide-react';
 import { useAppState } from '../context';
 import type { UserRole } from '../auth';
 
@@ -391,7 +391,7 @@ export default function ApplicationStatus({ userRole, currentUserEmail = "" }: A
             <div>
               <div className="flex items-center gap-1.5 font-bold text-gray-900 border-b border-gray-100 pb-2 mb-3 text-xs">
                 <ShieldCheck className="w-4 h-4 text-utm-gold" />
-                <span><span>Instant Background Checker & Restrictor</span></span>
+                <span>Instant Background Checker & Restrictor</span>
               </div>
               <form onSubmit={handleInstantCheck} className="space-y-2">
                 <input
@@ -501,7 +501,7 @@ export default function ApplicationStatus({ userRole, currentUserEmail = "" }: A
                       </td>
                       <td className="px-4 py-3 text-center">
                         {isStaff ? (
-                          <div className="flex items-center justify-center gap-2">
+                          <div className="flex items-center justify-center gap-1.5 flex-wrap">
                             <button
                               onClick={() => handleApproveWithCascade(app.id, app.equipmentCode)}
                               disabled={isFlagged}
@@ -511,14 +511,31 @@ export default function ApplicationStatus({ userRole, currentUserEmail = "" }: A
                             >
                               Approve Borrow
                             </button>
+                            
+                            {/* FIXED PIPELINE: Separated Action Trigger Buttons to prevent un-banning bugs */}
+                            <button
+                              onClick={() => rejectApplication(app.id)}
+                              className="px-2.5 py-1.5 rounded-lg text-[10px] font-bold bg-amber-50 text-amber-700 border border-amber-200 hover:bg-amber-100 transition-all flex items-center gap-1"
+                            >
+                              <XCircle className="w-3 h-3" /> Reject Application
+                            </button>
+
                             <button
                               onClick={() => {
-                                toggleBlacklistUser(studentEmail);
-                                rejectApplication(app.id);
+                                // Safeguard: ONLY trigger block toggle if they aren't already flagged
+                                if (!isFlagged) {
+                                  toggleBlacklistUser(studentEmail);
+                                }
                               }}
-                              className="px-3 py-1.5 rounded-lg text-[10px] font-bold bg-red-50 text-red-600 border border-red-200 hover:bg-red-100 transition-all"
+                              disabled={isFlagged}
+                              className={`px-2.5 py-1.5 rounded-lg text-[10px] font-bold border flex items-center gap-1 transition-all ${
+                                isFlagged 
+                                  ? 'bg-red-950 text-red-200 border-red-900 cursor-not-allowed opacity-80 shadow-none' 
+                                  : 'bg-red-50 text-red-600 border-red-200 hover:bg-red-100'
+                              }`}
                             >
-                              Reject & Ban
+                              <UserMinus className="w-3 h-3" />
+                              {isFlagged ? 'Already Banned ✓' : 'Ban & Blacklist'}
                             </button>
                           </div>
                         ) : (
@@ -585,6 +602,11 @@ export default function ApplicationStatus({ userRole, currentUserEmail = "" }: A
                       <td className="px-4 py-3">
                         <div className="font-bold text-gray-900 uppercase">{details.fullName}</div>
                         <div className="text-gray-500 font-mono text-[10px]">{details.emailAddress}</div>
+                        {isStaff && details.phoneNumber && (
+                          <div className="text-slate-400 text-[10px] mt-0.5 font-medium flex items-center gap-1">
+                            📱 {details.phoneNumber}
+                          </div>
+                        )}
                       </td>
                       <td className="px-4 py-3 font-mono font-bold text-utm-maroon text-xs">
                         {app.equipmentCode}
@@ -624,7 +646,7 @@ export default function ApplicationStatus({ userRole, currentUserEmail = "" }: A
                       </td>
                       <td className="px-4 py-3">
                         {isStaff ? (
-                          <div className="flex items-center justify-center gap-2">
+                          <div className="flex items-center justify-center gap-1.5 flex-wrap">
                             <button 
                               onClick={() => approveReturnRequest(app.id)} 
                               disabled={!isReturnSubmitted} 
@@ -633,20 +655,38 @@ export default function ApplicationStatus({ userRole, currentUserEmail = "" }: A
                               Verify & Close Session
                             </button>
                             
-                            {/* DYNAMIC COMPLIANCE ACTION INJECTION: Restrict overdue violators */}
+                            {/* OVERDUE CRITICAL TOOLS HUB */}
                             {isOverdue && (
-                              <button
-                                type="button"
-                                onClick={() => toggleBlacklistUser(studentEmail)}
-                                className={`px-2.5 py-1.5 rounded-lg text-[10px] font-bold border flex items-center gap-1 transition-all ${
-                                  isAlreadyBlacklisted 
-                                    ? 'bg-red-950 text-red-200 border-red-800' 
-                                    : 'bg-red-50 text-red-600 border-red-200 hover:bg-red-100'
-                                }`}
-                              >
-                                <UserMinus className="w-3 h-3" />
-                                {isAlreadyBlacklisted ? 'Blacklisted ✓' : 'Blacklist Student'}
-                              </button>
+                              <>
+                                {details.phoneNumber && (
+                                  <a
+                                    href={`tel:${details.phoneNumber}`}
+                                    className="px-2.5 py-1.5 bg-gray-900 hover:bg-gray-800 text-white rounded-lg text-[10px] font-bold border border-gray-800 flex items-center gap-1 transition-all shadow-sm"
+                                    title={`Call ${details.fullName} at ${details.phoneNumber}`}
+                                  >
+                                    <Phone className="w-3 h-3" />
+                                    Contact
+                                  </a>
+                                )}
+
+                                <button
+                                  type="button"
+                                  onClick={() => {
+                                    if (!isAlreadyBlacklisted) {
+                                      toggleBlacklistUser(studentEmail);
+                                    }
+                                  }}
+                                  disabled={isAlreadyBlacklisted}
+                                  className={`px-2.5 py-1.5 rounded-lg text-[10px] font-bold border flex items-center gap-1 transition-all ${
+                                    isAlreadyBlacklisted 
+                                      ? 'bg-red-950 text-red-200 border-red-900 cursor-not-allowed opacity-80' 
+                                      : 'bg-red-50 text-red-600 border-red-200 hover:bg-red-100'
+                                  }`}
+                                >
+                                  <UserMinus className="w-3 h-3" />
+                                  {isAlreadyBlacklisted ? 'Blacklisted ✓' : 'Blacklist Student'}
+                                </button>
+                              </>
                             )}
                           </div>
                         ) : (
