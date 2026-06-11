@@ -1,5 +1,5 @@
 import { useState, useMemo } from 'react';
-import { Clock, ShieldCheck, UserX, UserCheck, CheckCircle, FileText, Camera, UploadCloud, Ban, Undo2, Table, AlertTriangle, PackageCheck, Wrench, UserMinus, Phone, XCircle, CopyCheck } from 'lucide-react';
+import { Clock, ShieldCheck, UserX, UserCheck, CheckCircle, FileText, Camera, UploadCloud, Ban, Undo2, Table, AlertTriangle, PackageCheck, Wrench, UserMinus, Phone, XCircle, CopyCheck, SendHorizontal } from 'lucide-react';
 import { useAppState } from '../context';
 import type { UserRole } from '../auth';
 
@@ -36,8 +36,9 @@ export default function ApplicationStatus({ userRole, currentUserEmail = "" }: A
   });
   const [returnError, setReturnError] = useState('');
 
-  // Local state to keep track of which student's phone number was just copied
+  // States for copy feedback & SMS alert simulation popup
   const [copiedAppId, setCopiedAppId] = useState<string | null>(null);
+  const [smsNotificationPayload, setSmsNotificationPayload] = useState<{ isOpen: boolean; studentName: string; phone: string; message: string } | null>(null);
 
   const isStaff = userRole === 'staff';
   const cleanUserEmail = currentUserEmail.trim().toLowerCase();
@@ -236,14 +237,21 @@ export default function ApplicationStatus({ userRole, currentUserEmail = "" }: A
     setReturnError('');
   };
 
-  // Helper handling copying action clean pipeline natively
   const handleCopyPhoneNumber = (appId: string, phoneNum: string) => {
     if (!phoneNum) return;
     navigator.clipboard.writeText(phoneNum).then(() => {
       setCopiedAppId(appId);
-      setTimeout(() => {
-        setCopiedAppId(null);
-      }, 2000);
+      setTimeout(() => setCopiedAppId(null), 2000);
+    });
+  };
+
+  // Triggers the popup configuration panel for pushing mobile SMS
+  const triggerSmsSimulationModal = (studentName: string, phone: string, equipmentCode: string) => {
+    setSmsNotificationPayload({
+      isOpen: true,
+      studentName,
+      phone,
+      message: `[UTM LAB ALERT] Hi ${studentName}, your borrowed laboratory equipment (${equipmentCode}) is currently marked as OVERDUE CRITICAL. Please return it to the lab counter immediately to prevent permanent account suspension.`
     });
   };
 
@@ -270,7 +278,7 @@ export default function ApplicationStatus({ userRole, currentUserEmail = "" }: A
           <div className="space-y-1">
             <span className="text-[10px] font-bold text-slate-400 uppercase tracking-wider block">Stage 2: Active Possession Ledger</span>
             <div className="flex items-baseline gap-1">
-              <h3 className="text-xl font-extrabold text-slate-800 leading-none">{processedApplicationsLog.length}</h3>
+              <h3 className="text-xl font-extrabold text-slate-800 leather-none">{processedApplicationsLog.length}</h3>
               <span className="text-[10px] text-slate-500 font-medium">Live Sessions</span>
             </div>
             <p className="text-[10px] text-emerald-600 font-semibold flex items-center gap-1 mt-0.5">
@@ -671,28 +679,32 @@ export default function ApplicationStatus({ userRole, currentUserEmail = "" }: A
                             {isOverdue && (
                               <>
                                 {details.phoneNumber && (
-                                  <button
-                                    type="button"
-                                    onClick={() => handleCopyPhoneNumber(app.id, details.phoneNumber)}
-                                    className={`px-2.5 py-1.5 rounded-lg text-[10px] font-bold border flex items-center gap-1 transition-all shadow-sm ${
-                                      copiedAppId === app.id
-                                        ? 'bg-emerald-600 border-emerald-600 text-white'
-                                        : 'bg-gray-900 hover:bg-gray-800 text-white border-gray-800'
-                                    }`}
-                                    title="Click to copy student phone number"
-                                  >
-                                    {copiedAppId === app.id ? (
-                                      <>
-                                        <CopyCheck className="w-3 h-3" />
-                                        Copied!
-                                      </>
-                                    ) : (
-                                      <>
-                                        <Phone className="w-3 h-3" />
-                                        Contact
-                                      </>
-                                    )}
-                                  </button>
+                                  <div className="inline-flex items-center gap-1">
+                                    {/* BUTTON 1: Copy Phone number strictly natively without forcing page redirect */}
+                                    <button
+                                      type="button"
+                                      onClick={() => handleCopyPhoneNumber(app.id, details.phoneNumber)}
+                                      className={`px-2 py-1.5 rounded-l-lg text-[10px] font-bold border transition-all shadow-sm ${
+                                        copiedAppId === app.id
+                                          ? 'bg-emerald-600 border-emerald-600 text-white'
+                                          : 'bg-gray-900 hover:bg-gray-800 text-white border-gray-800'
+                                      }`}
+                                      title="Copy number to clipboard"
+                                    >
+                                      {copiedAppId === app.id ? <CopyCheck className="w-3 h-3" /> : <Phone className="w-3 h-3" />}
+                                      {copiedAppId === app.id ? 'Copied!' : 'Contact'}
+                                    </button>
+
+                                    {/* BUTTON 2: Simulated SMS push notification gateway pop up logs */}
+                                    <button
+                                      type="button"
+                                      onClick={() => triggerSmsSimulationModal(details.fullName, details.phoneNumber, app.equipmentCode)}
+                                      className="px-2 py-1.5 bg-amber-500 hover:bg-amber-600 text-white rounded-r-lg border border-amber-500 text-[10px] font-bold transition-all shadow-sm"
+                                      title="Push mobile notification warning pop up"
+                                    >
+                                      SMS Push 📱
+                                    </button>
+                                  </div>
                                 )}
 
                                 <button
@@ -790,6 +802,7 @@ export default function ApplicationStatus({ userRole, currentUserEmail = "" }: A
             </div>
 
             <form onSubmit={handleReturnSubmit} className="p-4 space-y-3">
+              {/* Form fields here */}
               <div>
                 <label className="block text-[10px] font-bold text-gray-700 mb-1">Date Returned</label>
                 <input
@@ -857,6 +870,51 @@ export default function ApplicationStatus({ userRole, currentUserEmail = "" }: A
                 </button>
               </div>
             </form>
+          </div>
+        </div>
+      )}
+
+      {/* NEW DISPATCH SIMULATOR DIALOGUE POP UP */}
+      {smsNotificationPayload?.isOpen && (
+        <div className="fixed inset-0 bg-black/70 backdrop-blur-xs flex items-center justify-center p-4 z-50">
+          <div className="bg-slate-900 text-slate-100 rounded-2xl max-w-sm w-full border border-slate-700 shadow-2xl p-5 space-y-4">
+            <div className="flex items-center gap-2 text-amber-400">
+              <span className="p-1.5 bg-amber-500/10 rounded-lg text-xs">🚀 Gateway Payload Link</span>
+              <h4 className="font-extrabold text-xs">SMS Notification Pipeline Active</h4>
+            </div>
+            
+            <p className="text-[11px] text-slate-400 leading-relaxed">
+              Below is the live payload generated by the system. In production, this data is packaged into an asynchronous JSON query and routed via external SMS/WhatsApp API carrier nodes.
+            </p>
+
+            <div className="bg-slate-950 rounded-lg p-3 border border-slate-800 space-y-2 font-mono text-[10px]">
+              <div><span className="text-slate-500">Recipient:</span> <span className="text-emerald-400 font-bold">{smsNotificationPayload.studentName}</span></div>
+              <div><span className="text-slate-500">Phone Code:</span> <span className="text-blue-400">{smsNotificationPayload.phone}</span></div>
+              <div className="border-t border-slate-900 pt-2 mt-1">
+                <span className="text-slate-500 block mb-1">Message Body String:</span>
+                <p className="text-slate-300 whitespace-pre-wrap bg-slate-900/50 p-2 rounded text-[9px] leading-normal">{smsNotificationPayload.message}</p>
+              </div>
+            </div>
+
+            <div className="flex gap-2">
+              <button
+                type="button"
+                onClick={() => setSmsNotificationPayload(null)}
+                className="w-full bg-slate-800 hover:bg-slate-700 text-slate-200 font-bold py-2 rounded-lg text-[10px] transition-colors"
+              >
+                Close Logs
+              </button>
+              <button
+                type="button"
+                onClick={() => {
+                  alert(`Successfully simulated SMS API broadcast dispatch sequence to ${smsNotificationPayload.phone}`);
+                  setSmsNotificationPayload(null);
+                }}
+                className="w-full bg-emerald-600 hover:bg-emerald-700 text-white font-bold py-2 rounded-lg text-[10px] transition-colors flex items-center justify-center gap-1"
+              >
+                <SendHorizontal className="w-3 h-3" /> Simulate Fire!
+              </button>
+            </div>
           </div>
         </div>
       )}
