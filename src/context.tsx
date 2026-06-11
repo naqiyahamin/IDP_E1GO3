@@ -1,9 +1,6 @@
 import { createContext, useContext, useState, useCallback, useEffect, useMemo, type ReactNode } from 'react';
 
 import { type BorrowFormData } from '../components/BorrowFormModal';
-
-
-
 /*
 
  * ============================================================
@@ -18,12 +15,10 @@ import { type BorrowFormData } from '../components/BorrowFormModal';
 
 
 
-export type EquipmentStatus = 'AVAILABLE' | 'PENDING PICKUP' | 'BORROWED' | 'RETURN_PENDING';
+export type EquipmentStatus = 'AVAILABLE' |
+'PENDING PICKUP' | 'BORROWED' | 'RETURN_PENDING';
 
 export type AppStatus = 'PENDING' | 'APPROVED' | 'REJECTED' | 'RETURNED';
-
-
-
 export interface ReturnDetailsData {
 
   dateReturned: string;
@@ -41,8 +36,7 @@ export interface ComponentType {
   name: string;
 
   totalUnits: number;
-
-  unitsOut: number;
+unitsOut: number;
 
   unitsOnShelf: number;
 
@@ -61,8 +55,7 @@ export interface HistoryEntry {
   studentEmail: string;
 
   borrowDate: string;
-
-  returnDueTime: string;
+returnDueTime: string;
 
   borrowTimestamp: string;
 
@@ -77,8 +70,7 @@ export interface HistoryEntry {
 export interface OscilloscopeRow {
 
   no: number;
-
-  code: string;
+code: string;
 
   lastDateUsed: string;
 
@@ -97,8 +89,7 @@ export interface Application {
   id: string;
 
   formData: BorrowFormData;
-
-  equipmentCode: string;
+equipmentCode: string;
 
   submittedAt: string;
 
@@ -113,8 +104,7 @@ export interface Application {
   returnDetails?: ReturnDetailsData;
 
   stage: 'PENDING' | 'ACTIVE_BORROW' | 'HISTORICAL';
-
-  isApproved: boolean;
+isApproved: boolean;
 
   isReturned: boolean;
 
@@ -135,8 +125,7 @@ interface AppState {
   equipmentRows: OscilloscopeRow[];
 
   applicationQueue: Application[];
-
-  blacklistedEmails: string[];
+blacklistedEmails: string[];
 
   componentInventory: ComponentType[];
 
@@ -149,29 +138,27 @@ interface AppState {
   historicalLedger: Application[];
 
   updateEquipmentStatus: (code: string, newStatus: EquipmentStatus) => void;
-
-  submitApplication: (formData: BorrowFormData, equipmentCode: string, photoAttachment?: string) => void;
+submitApplication: (formData: BorrowFormData, equipmentCode: string, photoAttachment?: string) => void;
 
   approveApplication: (appId: string) => void;
 
   rejectApplication: (appId: string) => void;
-
-  submitReturnRequest: (appId: string, returnData: ReturnDetailsData) => void;
+submitReturnRequest: (appId: string, returnData: ReturnDetailsData) => void;
 
   approveReturnRequest: (appId: string) => void;
 
   toggleBlacklistUser: (email: string) => void;
+getLastSubmittedForm: () => BorrowFormData | null;
 
-  getLastSubmittedForm: () => BorrowFormData | null;
+  // New features for persisting passwords across refreshes and handling validation safely
+  resetUserPassword: (email: string, newPassword: string) => boolean;
+  verifyStateCredentials: (email: string, passcode: string) => any | null;
 
 }
 
 
 
 const AppContext = createContext<AppState | null>(null);
-
-
-
 const initialEquipment: OscilloscopeRow[] = [
 
   { no: 1, code: 'AGT567', lastDateUsed: '2026-05-10', labLocation: 'P04 LEVEL 3', status: 'AVAILABLE', verificationBy: 'RAZALI AHMAD' },
@@ -184,16 +171,14 @@ const initialEquipment: OscilloscopeRow[] = [
 
   { no: 5, code: 'AGT571', lastDateUsed: '2026-05-07', labLocation: 'P03 LEVEL 2', status: 'PENDING PICKUP', verificationBy: 'NORHAYATI IDRIS' },
 
-  { no: 6, code: 'AGT572', lastDateUsed: '2026-05-06', labLocation: 'P05 LEVEL 1', status: 'AVAILABLE', verificationBy: 'KAMARUZAMAN YUSOF' },
+  { no: 6, 
+code: 'AGT572', lastDateUsed: '2026-05-06', labLocation: 'P05 LEVEL 1', status: 'AVAILABLE', verificationBy: 'KAMARUZAMAN YUSOF' },
 
   { no: 7, code: 'AGT573', lastDateUsed: '2026-05-05', labLocation: 'P05 LEVEL 1', status: 'BORROWED', verificationBy: 'KAMARUZAMAN YUSOF' },
 
   { no: 8, code: 'AGT574', lastDateUsed: '2026-05-12', labLocation: 'P04 LEVEL 3', status: 'AVAILABLE', verificationBy: 'RAZALI AHMAD' },
 
 ];
-
-
-
 const initialHistory: HistoryEntry[] = [
 
   {
@@ -234,7 +219,8 @@ const initialHistory: HistoryEntry[] = [
 
     borrowTimestamp: '2026-05-01T09:15:00Z',
 
-    status: 'RETURNED',
+    
+status: 'RETURNED',
 
     returnedDate: '2026-05-02'
 
@@ -274,7 +260,8 @@ const initialApplicationQueue: Application[] = [
 
     isBlacklisted: false,
 
-    status: 'PENDING',
+    
+status: 'PENDING',
 
     stage: 'PENDING',
 
@@ -310,7 +297,8 @@ const initialApplicationQueue: Application[] = [
 
     equipmentCode: 'AGT569',
 
-    submittedAt: '2026-06-02T10:15:00Z',
+    
+submittedAt: '2026-06-02T10:15:00Z',
 
     isBlacklisted: false,
 
@@ -346,7 +334,8 @@ const initialApplicationQueue: Application[] = [
 
       dateBorrow: '2026-05-29',
 
-      phoneNumber: '0198765432',
+      phoneNumber: 
+'0198765432',
 
       emailAddress: 'naqiyah@graduate.utm.my',
 
@@ -384,7 +373,8 @@ const initialApplicationQueue: Application[] = [
 
     },
 
-    processedAt: '2026-05-29T08:30:00Z',
+   
+processedAt: '2026-05-29T08:30:00Z',
 
   },
 
@@ -405,8 +395,7 @@ const initialInventory: ComponentType[] = [
   { name: 'Digital Multimeter', totalUnits: 15, unitsOut: 2, unitsOnShelf: 13 },
 
 ];
-
-
+import { ALLOWED_USERS } from '../auth';
 
 export function AppProvider({ children }: { children: ReactNode }) {
 
@@ -423,40 +412,28 @@ export function AppProvider({ children }: { children: ReactNode }) {
     return saved ? JSON.parse(saved) : initialEquipment;
 
   });
-
-
-
-  const [applicationQueue, setApplicationQueue] = useState<Application[]>(() => {
+const [applicationQueue, setApplicationQueue] = useState<Application[]>(() => {
 
     const saved = localStorage.getItem('utm_application_queue');
 
     return saved ? JSON.parse(saved) : initialApplicationQueue;
 
   });
-
-
-
-  const [blacklistedEmails, setBlacklistedEmails] = useState<string[]>(() => {
+const [blacklistedEmails, setBlacklistedEmails] = useState<string[]>(() => {
 
     const saved = localStorage.getItem('utm_blacklisted_emails');
 
     return saved ? JSON.parse(saved) : ['badstudent@utm.my'];
 
   });
-
-
-
-  const [transactionHistory, setTransactionHistory] = useState<HistoryEntry[]>(() => {
+const [transactionHistory, setTransactionHistory] = useState<HistoryEntry[]>(() => {
 
     const saved = localStorage.getItem('utm_transaction_history');
 
     return saved ? JSON.parse(saved) : initialHistory;
 
   });
-
-
-
-  const [componentInventory, setComponentInventory] = useState<ComponentType[]>(() => {
+const [componentInventory, setComponentInventory] = useState<ComponentType[]>(() => {
 
     const saved = localStorage.getItem('utm_component_inventory');
 
@@ -464,7 +441,11 @@ export function AppProvider({ children }: { children: ReactNode }) {
 
   });
 
-
+  // State mapping database dictionary to securely lock and sync overwritten user passwords runtime parameters
+  const [dynamicPasswords, setDynamicPasswords] = useState<Record<string, string>>(() => {
+    const saved = localStorage.getItem('utm_dynamic_passwords');
+    return saved ? JSON.parse(saved) : {};
+  });
 
   // ===================================================================
 
@@ -477,46 +458,70 @@ export function AppProvider({ children }: { children: ReactNode }) {
     localStorage.setItem('utm_equipment_rows', JSON.stringify(equipmentRows));
 
   }, [equipmentRows]);
-
-
-
-  useEffect(() => {
+useEffect(() => {
 
     localStorage.setItem('utm_application_queue', JSON.stringify(applicationQueue));
 
   }, [applicationQueue]);
-
-
-
-  useEffect(() => {
+useEffect(() => {
 
     localStorage.setItem('utm_blacklisted_emails', JSON.stringify(blacklistedEmails));
 
   }, [blacklistedEmails]);
-
-
-
-  useEffect(() => {
+useEffect(() => {
 
     localStorage.setItem('utm_transaction_history', JSON.stringify(transactionHistory));
 
   }, [transactionHistory]);
-
-
-
-  useEffect(() => {
+useEffect(() => {
 
     localStorage.setItem('utm_component_inventory', JSON.stringify(componentInventory));
 
   }, [componentInventory]);
 
-
+  useEffect(() => {
+    localStorage.setItem('utm_dynamic_passwords', JSON.stringify(dynamicPasswords));
+  }, [dynamicPasswords]);
 
   // ===================================================================
 
   // LIFE TRANSITION DISPATCHERS
 
   // ===================================================================
+
+  const resetUserPassword = useCallback((email: string, newPassword: string): boolean => {
+    const cleanEmail = email.trim().toLowerCase();
+    if (ALLOWED_USERS[cleanEmail]) {
+      setDynamicPasswords((prev) => ({
+        ...prev,
+        [cleanEmail]: newPassword,
+      }));
+      return true;
+    }
+    return false;
+  }, []);
+
+  const verifyStateCredentials = useCallback((email: string, passcode: string) => {
+    const cleanEmail = email.trim().toLowerCase();
+    const staticRecord = ALLOWED_USERS[cleanEmail];
+    
+    if (!staticRecord) return null;
+
+    // Checks state memory override first. If modified, the old password becomes invalid.
+    const activeValidPassword = dynamicPasswords[cleanEmail] !== undefined 
+      ? dynamicPasswords[cleanEmail] 
+      : staticRecord.password;
+
+    if (activeValidPassword === passcode) {
+      return {
+        email: cleanEmail,
+        name: staticRecord.name,
+        role: staticRecord.role,
+        course: staticRecord.course
+      };
+    }
+    return null;
+  }, [dynamicPasswords]);
 
   const updateEquipmentStatus = useCallback((code: string, newStatus: EquipmentStatus) => {
 
@@ -527,10 +532,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
     );
 
   }, []);
-
-
-
-  const toggleBlacklistUser = useCallback((email: string) => {
+const toggleBlacklistUser = useCallback((email: string) => {
 
     setBlacklistedEmails((prev) => {
 
@@ -548,7 +550,8 @@ export function AppProvider({ children }: { children: ReactNode }) {
 
             ? { ...app, isBlacklisted: updatedList.includes(targetEmail) }
 
-            : app
+         
+    : app
 
         )
 
@@ -559,10 +562,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
     });
 
   }, []);
-
-
-
-  const submitApplication = useCallback((formData: BorrowFormData, equipmentCode: string, photoAttachment?: string) => {
+const submitApplication = useCallback((formData: BorrowFormData, equipmentCode: string, photoAttachment?: string) => {
 
     const studentEmail = formData.emailAddress.toLowerCase().trim();
 
@@ -590,7 +590,8 @@ export function AppProvider({ children }: { children: ReactNode }) {
 
     if (hasOverdueItem) {
 
-      isBlacklisted = true;
+ 
+     isBlacklisted = true;
 
       if (!blacklistedEmails.includes(studentEmail)) {
 
@@ -618,6 +619,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
 
       photoAttachment,
 
+      
       stage: 'PENDING', 
 
       isApproved: false,
@@ -627,18 +629,14 @@ export function AppProvider({ children }: { children: ReactNode }) {
       isReturnVerified: false,
 
     };
-
-
-
-    setApplicationQueue((prev) => [...prev, app]);
+setApplicationQueue((prev) => [...prev, app]);
 
     setEquipmentRows((prevRows) =>
 
       prevRows.map((row) => row.code === equipmentCode ? { ...row, status: 'PENDING PICKUP' } : row)
 
     );
-
-  }, [blacklistedEmails, applicationQueue]);
+}, [blacklistedEmails, applicationQueue]);
 
 
 
@@ -660,7 +658,8 @@ export function AppProvider({ children }: { children: ReactNode }) {
 
           prevInv.map((item) =>
 
-            item.name === 'Digital Oscilloscope'
+     
+        item.name === 'Digital Oscilloscope'
 
               ? { ...item, unitsOut: item.unitsOut + 1, unitsOnShelf: item.unitsOnShelf - 1 }
 
@@ -676,7 +675,8 @@ export function AppProvider({ children }: { children: ReactNode }) {
 
         a.id === appId
 
-          ? {
+        
+   ? {
 
               ...a,
 
@@ -690,13 +690,13 @@ export function AppProvider({ children }: { children: ReactNode }) {
 
               processedAt: new Date().toISOString(),
 
-            }
+     
+        }
 
           : a
 
       );
-
-    });
+});
 
   }, []);
 
@@ -722,7 +722,8 @@ export function AppProvider({ children }: { children: ReactNode }) {
 
     });
 
-  }, []);
+  }, 
+[]);
 
 
 
@@ -746,6 +747,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
 
         a.id === appId
 
+ 
           ? {
 
               ...a,
@@ -762,7 +764,8 @@ export function AppProvider({ children }: { children: ReactNode }) {
 
       );
 
-    });
+  
+   });
 
   }, []);
 
@@ -784,7 +787,8 @@ export function AppProvider({ children }: { children: ReactNode }) {
 
             row.code === target.equipmentCode
 
-              ? { ...row, status: 'AVAILABLE', lastDateUsed: target.returnDetails?.dateReturned || new Date().toISOString().split('T')[0] }
+              ? { ...row, status: 'AVAILABLE', lastDateUsed: target.returnDetails?.dateReturned 
+|| new Date().toISOString().split('T')[0] }
 
               : row
 
@@ -802,7 +806,8 @@ export function AppProvider({ children }: { children: ReactNode }) {
 
               ? { ...item, unitsOut: Math.max(0, item.unitsOut - 1), unitsOnShelf: item.unitsOnShelf + 1 }
 
-              : item
+   
+            : item
 
           )
 
@@ -820,25 +825,30 @@ export function AppProvider({ children }: { children: ReactNode }) {
 
             componentType: 'Digital Oscilloscope',
 
-            studentName: target.formData?.fullName || 'UNKNOWN STUDENT',
+           
+  studentName: target.formData?.fullName || 'UNKNOWN STUDENT',
 
-            studentEmail: target.formData?.emailAddress || 'unknown@utm.my',
+            studentEmail: target.formData?.emailAddress ||
+'unknown@utm.my',
 
-            borrowDate: target.formData?.dateBorrow || new Date().toISOString().split('T')[0],
+            borrowDate: target.formData?.dateBorrow ||
+new Date().toISOString().split('T')[0],
 
-            returnDueTime: target.formData?.returnTime || '16:00',
+            returnDueTime: target.formData?.returnTime ||
+'16:00',
 
-            borrowTimestamp: target.approvedAt || new Date().toISOString(),
+            borrowTimestamp: target.approvedAt ||
+new Date().toISOString(),
 
             status: 'RETURNED',
 
-            returnedDate: target.returnDetails?.dateReturned || new Date().toISOString().split('T')[0],
+            returnedDate: target.returnDetails?.dateReturned ||
+new Date().toISOString().split('T')[0],
 
           }
 
         ]);
-
-      }
+}
 
 
 
@@ -856,7 +866,8 @@ export function AppProvider({ children }: { children: ReactNode }) {
 
               isReturnVerified: true,
 
-              processedAt: new Date().toISOString(),
+           
+    processedAt: new Date().toISOString(),
 
               returnVerifiedAt: new Date().toISOString(),
 
@@ -865,8 +876,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
           : a
 
       );
-
-    });
+});
 
   }, []);
 
@@ -879,10 +889,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
     return applicationQueue[applicationQueue.length - 1].formData;
 
   }, [applicationQueue]);
-
-
-
-  // Pure 3-Stage Pipeline Selectors
+// Pure 3-Stage Pipeline Selectors
 
   const incomingVerificationQueue = useMemo(() => 
 
@@ -891,30 +898,21 @@ export function AppProvider({ children }: { children: ReactNode }) {
     [applicationQueue]
 
   );
-
-
-
-  const processedApplicationsLog = useMemo(() => 
+const processedApplicationsLog = useMemo(() => 
 
     applicationQueue.filter((app) => app.stage === 'ACTIVE_BORROW'),
 
     [applicationQueue]
 
   );
-
-
-
-  const historicalLedger = useMemo(() => 
+const historicalLedger = useMemo(() => 
 
     applicationQueue.filter((app) => app.stage === 'HISTORICAL'),
 
     [applicationQueue]
 
   );
-
-
-
-  return (
+return (
 
     <AppContext.Provider
 
@@ -942,6 +940,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
 
         approveApplication,
 
+ 
         rejectApplication,
 
         submitReturnRequest,
@@ -952,6 +951,10 @@ export function AppProvider({ children }: { children: ReactNode }) {
 
         getLastSubmittedForm,
 
+        resetUserPassword,
+
+        verifyStateCredentials,
+
       }}
 
     >
@@ -961,7 +964,6 @@ export function AppProvider({ children }: { children: ReactNode }) {
     </AppContext.Provider>
 
   );
-
 }
 
 
@@ -971,7 +973,6 @@ export function useAppState() {
   const ctx = useContext(AppContext);
 
   if (!ctx) throw new Error('useAppState must be used within AppProvider');
-
-  return ctx;
+return ctx;
 
 }
