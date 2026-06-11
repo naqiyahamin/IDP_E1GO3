@@ -86,17 +86,18 @@ export default function ApplicationStatus({ userRole, currentUserEmail = "" }: A
   // ROLE-BASED DATA FILTERING PIPELINE
   // ==========================================
   const incomingVerificationQueue = useMemo(() => {
-    if (isStaff) return rawQueue;
+    // FORCE BYPASS: If role is staff OR it matches your testing email, show all rows
+    if (isStaff || cleanUserEmail === 'naqiyah@graduate.utm.my') return rawQueue;
     return rawQueue.filter(app => app.formData.emailAddress.trim().toLowerCase() === cleanUserEmail);
   }, [rawQueue, isStaff, cleanUserEmail]);
 
   const processedApplicationsLog = useMemo(() => {
-    if (isStaff) return rawLog;
+    if (isStaff || cleanUserEmail === 'naqiyah@graduate.utm.my') return rawLog;
     return rawLog.filter(app => app.formData.emailAddress.trim().toLowerCase() === cleanUserEmail);
   }, [rawLog, isStaff, cleanUserEmail]);
 
   const historicalLedger = useMemo(() => {
-    if (isStaff) return rawLedger;
+    if (isStaff || cleanUserEmail === 'naqiyah@graduate.utm.my') return rawLedger;
     return rawLedger.filter(app => app.formData.emailAddress.trim().toLowerCase() === cleanUserEmail);
   }, [rawLedger, isStaff, cleanUserEmail]);
 
