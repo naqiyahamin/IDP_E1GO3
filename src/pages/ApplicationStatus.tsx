@@ -1,5 +1,5 @@
 import { useState, useMemo } from 'react';
-import { Clock, ShieldCheck, UserX, UserCheck, CheckCircle, FileText, Camera, UploadCloud, Ban, Undo2, Table, AlertTriangle, PackageCheck, Wrench } from 'lucide-react';
+import { Clock, ShieldCheck, UserX, UserCheck, CheckCircle, FileText, Camera, UploadCloud, Ban, Undo2, Table, AlertTriangle, PackageCheck, Wrench, UserMinus } from 'lucide-react';
 import { useAppState } from '../context';
 import type { UserRole } from '../auth';
 
@@ -13,7 +13,7 @@ export default function ApplicationStatus({ userRole, currentUserEmail = "" }: A
     incomingVerificationQueue: rawQueue,
     processedApplicationsLog: rawLog,
     historicalLedger: rawLedger,
-    equipmentRows, // SURGICAL INJECTION: Injected central equipment row data feed to track active maintenance flags
+    equipmentRows, 
     approveApplication, 
     rejectApplication, 
     blacklistedEmails, 
@@ -73,14 +73,13 @@ export default function ApplicationStatus({ userRole, currentUserEmail = "" }: A
     return 4;
   };
 
-  // Helper to generate all unit codes within an equipment group category type
   const getAllCodesForType = (code: string) => {
     const prefix = code.substring(0, 3);
     const baseNum = parseInt(code.substring(3), 10);
     if (isNaN(baseNum)) return [code];
     
     const totalCap = getAssetTotalCapacity(code);
-    const startRange = Math.floor(baseNum / 10) * 10 + 1; // e.g., 5701 base gives 5701-5705 range
+    const startRange = Math.floor(baseNum / 10) * 10 + 1;
     
     const groupCodes: string[] = [];
     for (let i = 0; i < totalCap; i++) {
@@ -98,15 +97,14 @@ export default function ApplicationStatus({ userRole, currentUserEmail = "" }: A
       code: string;
       name: string;
       totalBorrowedTimes: number;
-      isBeingBorrowed: number; // Awaiting confirmation in queue
-      inPossession: number;    // Checked out and with the student
-      overdueCount: number;    // Kept beyond promised target date
-      maintenanceStatus: 'BROKEN' | 'CALIBRATING' | null; // SURGICAL INJECTION: Structural tracker attribute field
+      isBeingBorrowed: number;
+      inPossession: number;
+      overdueCount: number;
+      maintenanceStatus: 'BROKEN' | 'CALIBRATING' | null;
     }> = {};
 
     const initRow = (code: string) => {
       if (!stats[code]) {
-        // Look up central rows status values parameters configuration 
         const liveMatch = equipmentRows?.find(r => r.code === code);
         const currentMaint = (liveMatch?.status === 'BROKEN' || liveMatch?.status === 'CALIBRATING') 
           ? liveMatch.status 
@@ -124,10 +122,8 @@ export default function ApplicationStatus({ userRole, currentUserEmail = "" }: A
       }
     };
 
-    // Guarantee that all tracked stock matrix rows populate immediately onto layout index
     equipmentRows?.forEach(r => initRow(r.code));
 
-    // Ensure all possible codes for active groups show up on the spreadsheet index
     rawQueue.forEach(app => {
       getAllCodesForType(app.equipmentCode).forEach(c => initRow(c));
     });
@@ -135,14 +131,12 @@ export default function ApplicationStatus({ userRole, currentUserEmail = "" }: A
       getAllCodesForType(app.equipmentCode).forEach(c => initRow(c));
     });
 
-    // Pipeline 1: Awaiting Approvals
     rawQueue.forEach(app => {
       initRow(app.equipmentCode);
       stats[app.equipmentCode].isBeingBorrowed += 1;
       stats[app.equipmentCode].totalBorrowedTimes += 1;
     });
 
-    // Pipeline 2: Active Possessions
     rawLog.forEach(app => {
       initRow(app.equipmentCode);
       stats[app.equipmentCode].totalBorrowedTimes += 1;
@@ -157,13 +151,10 @@ export default function ApplicationStatus({ userRole, currentUserEmail = "" }: A
           if (!isNaN(targetReturnDate.getTime()) && targetReturnDate < currentSystemDate) {
             stats[app.equipmentCode].overdueCount += 1;
           }
-        } catch (e) {
-          // Graceful fallback ignore
-        }
+        } catch (e) {}
       }
     });
 
-    // Pipeline 3: Closed Historical Archives
     rawLedger.forEach(app => {
       initRow(app.equipmentCode);
       stats[app.equipmentCode].totalBorrowedTimes += 1;
@@ -172,9 +163,6 @@ export default function ApplicationStatus({ userRole, currentUserEmail = "" }: A
     return Object.values(stats).sort((a, b) => a.code.localeCompare(b.code));
   }, [rawQueue, rawLog, rawLedger, equipmentRows]);
 
-  // ==========================================
-  // CUSTOM CASCADE REDIRECT HANDLER
-  // ==========================================
   const handleApproveWithCascade = (appId: string, currentCode: string) => {
     approveApplication(appId);
     const alternativeAvailableCodes = getAllCodesForType(currentCode);
@@ -189,7 +177,6 @@ export default function ApplicationStatus({ userRole, currentUserEmail = "" }: A
 
     matchingPendingApps.forEach(pendingApp => {
       const nextVacantCode = alternativeAvailableCodes.find(codeOption => {
-        // SURGICAL PROTECTION Check: Don't route students into items sitting in a down/offline state context
         const liveUnit = equipmentRows?.find(r => r.code === codeOption);
         if (liveUnit?.status === 'BROKEN' || liveUnit?.status === 'CALIBRATING') return false;
 
@@ -331,8 +318,6 @@ export default function ApplicationStatus({ userRole, currentUserEmail = "" }: A
                 <tbody className="divide-y divide-slate-100 font-medium">
                   {inventorySpreadsheetData.map((row) => {
                     const totalCap = getAssetTotalCapacity(row.code);
-                    
-                    // SURGICAL EXTENSION: Deduct capacity when items go offline for repairs
                     const isMaintActive = row.maintenanceStatus !== null;
                     const stockRemaining = isMaintActive ? 0 : Math.max(0, totalCap - row.inPossession);
 
@@ -345,7 +330,6 @@ export default function ApplicationStatus({ userRole, currentUserEmail = "" }: A
                         <td className="px-4 py-2.5 text-center font-bold text-blue-600">{row.inPossession}</td>
                         <td className="px-4 py-2.5 text-center text-xs">
                           {row.maintenanceStatus ? (
-                            /* SURGICAL INJECTION: Renders highlighted indicators if broken/calibrating triggers */
                             <span className={`inline-flex items-center gap-1 px-2 py-0.5 font-bold rounded-sm text-[9px] uppercase ${row.maintenanceStatus === 'BROKEN' ? 'bg-red-100 text-red-700 border border-red-200' : 'bg-orange-100 text-orange-700 border border-orange-200'}`}>
                               <Wrench className="w-2.5 h-2.5 animate-spin" /> {row.maintenanceStatus}
                             </span>
@@ -407,7 +391,7 @@ export default function ApplicationStatus({ userRole, currentUserEmail = "" }: A
             <div>
               <div className="flex items-center gap-1.5 font-bold text-gray-900 border-b border-gray-100 pb-2 mb-3 text-xs">
                 <ShieldCheck className="w-4 h-4 text-utm-gold" />
-                <span>Instant Background Checker & Restrictor</span>
+                <span><span>Instant Background Checker & Restrictor</span></span>
               </div>
               <form onSubmit={handleInstantCheck} className="space-y-2">
                 <input
@@ -583,7 +567,10 @@ export default function ApplicationStatus({ userRole, currentUserEmail = "" }: A
               <tbody>
                 {processedApplicationsLog.map((app) => {
                   const details = app.formData;
+                  const studentEmail = details.emailAddress.toLowerCase().trim();
                   const isReturnSubmitted = app.isReturned && !!app.returnDetails;
+                  const isAlreadyBlacklisted = blacklistedEmails.includes(studentEmail);
+                  
                   let isOverdue = false;
                   try {
                     const currentSystemDate = new Date('2026-06-04');
@@ -635,9 +622,9 @@ export default function ApplicationStatus({ userRole, currentUserEmail = "" }: A
                           </span>
                         )}
                       </td>
-                      <td className="px-4 py-3 text-center">
+                      <td className="px-4 py-3">
                         {isStaff ? (
-                          <div className="flex justify-center">
+                          <div className="flex items-center justify-center gap-2">
                             <button 
                               onClick={() => approveReturnRequest(app.id)} 
                               disabled={!isReturnSubmitted} 
@@ -645,6 +632,22 @@ export default function ApplicationStatus({ userRole, currentUserEmail = "" }: A
                             >
                               Verify & Close Session
                             </button>
+                            
+                            {/* DYNAMIC COMPLIANCE ACTION INJECTION: Restrict overdue violators */}
+                            {isOverdue && (
+                              <button
+                                type="button"
+                                onClick={() => toggleBlacklistUser(studentEmail)}
+                                className={`px-2.5 py-1.5 rounded-lg text-[10px] font-bold border flex items-center gap-1 transition-all ${
+                                  isAlreadyBlacklisted 
+                                    ? 'bg-red-950 text-red-200 border-red-800' 
+                                    : 'bg-red-50 text-red-600 border-red-200 hover:bg-red-100'
+                                }`}
+                              >
+                                <UserMinus className="w-3 h-3" />
+                                {isAlreadyBlacklisted ? 'Blacklisted ✓' : 'Blacklist Student'}
+                              </button>
+                            )}
                           </div>
                         ) : (
                           <div className="flex justify-center">
