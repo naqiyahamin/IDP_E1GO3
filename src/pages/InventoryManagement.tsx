@@ -5,10 +5,10 @@ import {
   ChevronDown, 
   ChevronRight, 
   Layers, 
-  ShieldCheck, 
-  ShieldAlert, 
   Search,
-  ClipboardList
+  ClipboardList,
+  Wrench,
+  CheckCircle
 } from 'lucide-react';
 
 interface InventoryManagementProps {
@@ -17,7 +17,8 @@ interface InventoryManagementProps {
 }
 
 export default function InventoryManagement({ userRole, currentUserEmail }: InventoryManagementProps) {
-  const { componentInventory, equipmentRows, applicationQueue } = useAppState();
+  // Added 'updateEquipmentStatus' pulled surgically from your global context
+  const { componentInventory, equipmentRows, applicationQueue, updateEquipmentStatus } = useAppState();
   const [searchQuery, setSearchQuery] = useState('');
   
   // Track which parent equipment models are expanded to show their unique serial sub-ledgers
@@ -41,7 +42,7 @@ export default function InventoryManagement({ userRole, currentUserEmail }: Inve
   };
 
   // Helper styling functions for unique asset statuses
-  const getStatusBadge = (status: OscilloscopeRow['status']) => {
+  const getStatusBadge = (status: OscilloscopeRow['status'] | 'BROKEN' | 'CALIBRATING') => {
     switch (status) {
       case 'AVAILABLE':
         return (
@@ -69,6 +70,21 @@ export default function InventoryManagement({ userRole, currentUserEmail }: Inve
           <span className="px-2.5 py-1 text-xs font-semibold bg-blue-50 text-blue-700 rounded-full border border-blue-200 inline-flex items-center gap-1.5">
             <span className="w-1.5 h-1.5 rounded-full bg-blue-500"></span>
             Return Reviewing Queue
+          </span>
+        );
+      // Added visually striking badges for your new custom hardware states
+      case 'BROKEN':
+        return (
+          <span className="px-2.5 py-1 text-xs font-semibold bg-red-100 text-red-800 rounded-full border border-red-300 inline-flex items-center gap-1.5">
+            <span className="w-1.5 h-1.5 rounded-full bg-red-600 animate-pulse"></span>
+            Broken / Down
+          </span>
+        );
+      case 'CALIBRATING':
+        return (
+          <span className="px-2.5 py-1 text-xs font-semibold bg-orange-100 text-orange-800 rounded-full border border-orange-300 inline-flex items-center gap-1.5">
+            <span className="w-1.5 h-1.5 rounded-full bg-orange-500 animate-pulse"></span>
+            Under Calibration
           </span>
         );
       default:
@@ -211,6 +227,8 @@ export default function InventoryManagement({ userRole, currentUserEmail }: Inve
                       <th className="py-2.5 px-6 text-center">Last Calibration / Audit</th>
                       <th className="py-2.5 px-6 text-center">Absolute Lifespan Status</th>
                       <th className="py-2.5 px-6">Active Borrower Details</th>
+                      {/* SURGICAL ADDITION: Added dedicated Actions header column for staff control */}
+                      <th className="py-2.5 px-6 text-right">Actions</th>
                     </tr>
                   </thead>
                   <tbody className="divide-y divide-gray-200 text-xs text-gray-600">
@@ -230,6 +248,41 @@ export default function InventoryManagement({ userRole, currentUserEmail }: Inve
                               </div>
                             ) : (
                               <span className="text-gray-400 italic">No Active Borrow Records</span>
+                            )}
+                          </td>
+                          {/* SURGICAL ADDITION: Inline conditional staff operation controls */}
+                          <td className="py-3 px-6 text-right">
+                            {row.status === 'AVAILABLE' ? (
+                              <div className="inline-flex gap-1.5">
+                                <button
+                                  onClick={() => updateEquipmentStatus?.(row.code, 'BROKEN')}
+                                  className="px-2 py-1 font-semibold text-[11px] bg-red-50 text-red-600 hover:bg-red-100 rounded border border-red-200 transition-all flex items-center gap-1"
+                                  title="Mark item as broken"
+                                >
+                                  <Wrench className="w-3 h-3" />
+                                  Broken
+                                </button>
+                                <button
+                                  onClick={() => updateEquipmentStatus?.(row.code, 'CALIBRATING')}
+                                  className="px-2 py-1 font-semibold text-[11px] bg-orange-50 text-orange-600 hover:bg-orange-100 rounded border border-orange-200 transition-all"
+                                  title="Send item for calibration"
+                                >
+                                  Calibrate
+                                </button>
+                              </div>
+                            ) : (row.status === 'BROKEN' || row.status === 'CALIBRATING') ? (
+                              <button
+                                onClick={() => updateEquipmentStatus?.(row.code, 'AVAILABLE')}
+                                className="px-2 py-1 font-semibold text-[11px] bg-emerald-600 text-white hover:bg-emerald-700 rounded shadow-sm transition-all inline-flex items-center gap-1"
+                              >
+                                <CheckCircle className="w-3 h-3" />
+                                Finish Fix/Calibrate
+                              </button>
+                            ) : (
+                              // Disabled block placeholder if item is currently borrowed/pending pickup
+                              <span className="text-[10px] font-medium text-gray-400 italic bg-gray-50 px-2 py-1 rounded border border-gray-100">
+                                Asset Locked
+                              </span>
                             )}
                           </td>
                         </tr>
