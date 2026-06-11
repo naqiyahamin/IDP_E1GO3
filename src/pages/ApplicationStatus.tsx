@@ -1,5 +1,5 @@
 import { useState, useMemo } from 'react';
-import { Clock, ShieldCheck, UserX, UserCheck, CheckCircle, FileText, Camera, UploadCloud, Ban, Undo2, Table, AlertTriangle, PackageCheck } from 'lucide-react';
+import { Clock, ShieldCheck, UserX, UserCheck, CheckCircle, FileText, Camera, UploadCloud, Ban, Undo2, Table, AlertTriangle, PackageCheck, Wrench } from 'lucide-react';
 import { useAppState } from '../context';
 import type { UserRole } from '../auth';
 
@@ -13,6 +13,7 @@ export default function ApplicationStatus({ userRole, currentUserEmail = "" }: A
     incomingVerificationQueue: rawQueue,
     processedApplicationsLog: rawLog,
     historicalLedger: rawLedger,
+    equipmentRows, // SURGICAL INJECTION: Injected central equipment row data feed to track active maintenance flags
     approveApplication, 
     rejectApplication, 
     blacklistedEmails, 
@@ -100,20 +101,31 @@ export default function ApplicationStatus({ userRole, currentUserEmail = "" }: A
       isBeingBorrowed: number; // Awaiting confirmation in queue
       inPossession: number;    // Checked out and with the student
       overdueCount: number;    // Kept beyond promised target date
+      maintenanceStatus: 'BROKEN' | 'CALIBRATING' | null; // SURGICAL INJECTION: Structural tracker attribute field
     }> = {};
 
     const initRow = (code: string) => {
       if (!stats[code]) {
+        // Look up central rows status values parameters configuration 
+        const liveMatch = equipmentRows?.find(r => r.code === code);
+        const currentMaint = (liveMatch?.status === 'BROKEN' || liveMatch?.status === 'CALIBRATING') 
+          ? liveMatch.status 
+          : null;
+
         stats[code] = {
           code,
           name: getEquipmentName(code),
           totalBorrowedTimes: 0,
           isBeingBorrowed: 0,
           inPossession: 0,
-          overdueCount: 0
+          overdueCount: 0,
+          maintenanceStatus: currentMaint
         };
       }
     };
+
+    // Guarantee that all tracked stock matrix rows populate immediately onto layout index
+    equipmentRows?.forEach(r => initRow(r.code));
 
     // Ensure all possible codes for active groups show up on the spreadsheet index
     rawQueue.forEach(app => {
@@ -141,7 +153,7 @@ export default function ApplicationStatus({ userRole, currentUserEmail = "" }: A
         try {
           const currentSystemDate = new Date('2026-06-04');
           const targetReturnDate = new Date(app.formData.dateBorrow);
-          
+           
           if (!isNaN(targetReturnDate.getTime()) && targetReturnDate < currentSystemDate) {
             stats[app.equipmentCode].overdueCount += 1;
           }
@@ -158,41 +170,35 @@ export default function ApplicationStatus({ userRole, currentUserEmail = "" }: A
     });
 
     return Object.values(stats).sort((a, b) => a.code.localeCompare(b.code));
-  }, [rawQueue, rawLog, rawLedger]);
+  }, [rawQueue, rawLog, rawLedger, equipmentRows]);
 
   // ==========================================
   // CUSTOM CASCADE REDIRECT HANDLER
   // ==========================================
   const handleApproveWithCascade = (appId: string, currentCode: string) => {
-    // 1. Process primary click approval
     approveApplication(appId);
-
-    // 2. Identify the full family group of item codes (e.g. AGT5701 to AGT5705)
     const alternativeAvailableCodes = getAllCodesForType(currentCode);
-
-    // 3. Scan total allocations across active possession logs
     const activePossessionCounts: Record<string, number> = {};
+
     alternativeAvailableCodes.forEach(c => {
       activePossessionCounts[c] = rawLog.filter(x => x.equipmentCode === c && !(x.isReturned && x.returnDetails)).length;
     });
 
-    // Count this newly approved one as occupied
     activePossessionCounts[currentCode] = (activePossessionCounts[currentCode] || 0) + 1;
-
-    // 4. Evaluate if other applicants matching this group remain pending in the queue
     const matchingPendingApps = rawQueue.filter(a => a.id !== appId && alternativeAvailableCodes.includes(a.equipmentCode));
 
-    // 5. Cascade route any remaining students to the next vacant stock device automatically
     matchingPendingApps.forEach(pendingApp => {
-      // Find the first variant code in the same category that still has room/stock left
       const nextVacantCode = alternativeAvailableCodes.find(codeOption => {
+        // SURGICAL PROTECTION Check: Don't route students into items sitting in a down/offline state context
+        const liveUnit = equipmentRows?.find(r => r.code === codeOption);
+        if (liveUnit?.status === 'BROKEN' || liveUnit?.status === 'CALIBRATING') return false;
+
         const capacity = getAssetTotalCapacity(codeOption);
         const currentOccupied = activePossessionCounts[codeOption] || 0;
         return currentOccupied < capacity;
       });
 
       if (nextVacantCode && pendingApp.equipmentCode !== nextVacantCode) {
-        // Automatically route equipment code value configuration update context
         pendingApp.equipmentCode = nextVacantCode;
         activePossessionCounts[nextVacantCode] = (activePossessionCounts[nextVacantCode] || 0) + 1;
       }
@@ -318,14 +324,18 @@ export default function ApplicationStatus({ userRole, currentUserEmail = "" }: A
                     <th className="px-4 py-3 text-center bg-slate-50">Total Borrowed (Times)</th>
                     <th className="px-4 py-3 text-center text-amber-700">Is Being Borrowed (Queue)</th>
                     <th className="px-4 py-3 text-center text-blue-700">In Student Possession</th>
-                    <th className="px-4 py-3 text-center bg-red-50 text-red-700">⚠️ Beyond Due Date</th>
+                    <th className="px-4 py-3 text-center bg-red-50 text-red-700">⚠️ Status Flags</th>
                     <th className="px-4 py-3 text-center bg-emerald-50 text-emerald-800">Available Stock</th>
                   </tr>
                 </thead>
                 <tbody className="divide-y divide-slate-100 font-medium">
                   {inventorySpreadsheetData.map((row) => {
                     const totalCap = getAssetTotalCapacity(row.code);
-                    const stockRemaining = Math.max(0, totalCap - row.inPossession);
+                    
+                    // SURGICAL EXTENSION: Deduct capacity when items go offline for repairs
+                    const isMaintActive = row.maintenanceStatus !== null;
+                    const stockRemaining = isMaintActive ? 0 : Math.max(0, totalCap - row.inPossession);
+
                     return (
                       <tr key={row.code} className="hover:bg-slate-50/80 transition-colors">
                         <td className="px-4 py-2.5 font-mono font-bold text-utm-maroon text-xs">{row.code}</td>
@@ -333,16 +343,23 @@ export default function ApplicationStatus({ userRole, currentUserEmail = "" }: A
                         <td className="px-4 py-2.5 text-center font-bold bg-slate-50 text-slate-900">{row.totalBorrowedTimes} x</td>
                         <td className="px-4 py-2.5 text-center font-bold text-amber-600">{row.isBeingBorrowed}</td>
                         <td className="px-4 py-2.5 text-center font-bold text-blue-600">{row.inPossession}</td>
-                        <td className={`px-4 py-2.5 text-center font-extrabold ${row.overdueCount > 0 ? 'bg-red-50 text-red-600 animate-pulse' : 'text-slate-400 font-normal'}`}>
-                          {row.overdueCount > 0 ? (
-                            <span className="inline-flex items-center gap-0.5">
+                        <td className="px-4 py-2.5 text-center text-xs">
+                          {row.maintenanceStatus ? (
+                            /* SURGICAL INJECTION: Renders highlighted indicators if broken/calibrating triggers */
+                            <span className={`inline-flex items-center gap-1 px-2 py-0.5 font-bold rounded-sm text-[9px] uppercase ${row.maintenanceStatus === 'BROKEN' ? 'bg-red-100 text-red-700 border border-red-200' : 'bg-orange-100 text-orange-700 border border-orange-200'}`}>
+                              <Wrench className="w-2.5 h-2.5 animate-spin" /> {row.maintenanceStatus}
+                            </span>
+                          ) : row.overdueCount > 0 ? (
+                            <span className="inline-flex items-center gap-0.5 font-extrabold bg-red-50 text-red-600 animate-pulse">
                               <AlertTriangle className="w-3 h-3 text-red-500" /> {row.overdueCount} OVERDUE
                             </span>
-                          ) : '0'}
+                          ) : (
+                            <span className="text-slate-400 font-normal text-[10px]">Normal</span>
+                          )}
                         </td>
                         <td className="px-4 py-2.5 text-center bg-emerald-50/50">
                           <span className={`inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-bold ${stockRemaining > 0 ? 'bg-emerald-100 text-emerald-800' : 'bg-red-100 text-red-800'}`}>
-                            <PackageCheck className="w-3 h-3" /> {stockRemaining} / {totalCap} Available
+                            <PackageCheck className="w-3 h-3" /> {isMaintActive ? 'OFFLINE' : `${stockRemaining} / ${totalCap} Available`}
                           </span>
                         </td>
                       </tr>
