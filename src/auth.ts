@@ -38,7 +38,7 @@ export const ALLOWED_USERS: Record<string, { name: string; role: UserRole; passw
 
   // === STAFF MEMBERS REGISTERED (6 Accounts) ===
 
-  'naqiyah@graduate.utm.my': { name: 'INCIK RAZALI BIN IDRIS', role: 'staff', password: 'nn' },
+  'naqiyah@graduate.utm.my': { name: 'Verification Log Sync Operator: NAQIYAH', role: 'staff', password: 'nn' },
 
   'aminah@utm.my': { name: 'PUAN AMINAH BINTI SULAIMAN', role: 'staff', password: 'staff_aminah2026' },
 

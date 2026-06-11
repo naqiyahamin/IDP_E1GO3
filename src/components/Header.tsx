@@ -49,7 +49,7 @@ export default function Header({ activePage, user, onLogout }: HeaderProps) {
         {/* User info + Logout */}
         <div className="flex items-center gap-3 pl-3 border-l border-gray-200">
           <div className="text-right hidden sm:block">
-            <p className="text-xs font-semibold text-gray-900 capitalize">{user.role}</p>
+            <p className="text-xs font-semibold text-gray-900">{user.name}</p>
             <p className="text-[10px] text-gray-500">{user.email}</p>
           </div>
           <div className="w-9 h-9 rounded-full bg-utm-maroon flex items-center justify-center text-white text-sm font-semibold">
