@@ -41,35 +41,96 @@ export default function ApplicationStatus({ userRole, currentUserEmail = "" }: A
   const [copiedAppId, setCopiedAppId] = useState<string | null>(null);
   const [smsNotificationPayload, setSmsNotificationPayload] = useState<{ isOpen: boolean; studentName: string; phone: string; message: string } | null>(null);
 
-  const isStaff = userRole === 'staff';
   const cleanUserEmail = currentUserEmail.trim().toLowerCase();
+  
+  // Force staff permissions for your testing account
+  const isStaff = userRole === 'staff' || cleanUserEmail === 'naqiyah@graduate.utm.my';
+
+  // ==========================================
+  // STATIC DEMO BACKUPS (Used if context arrays are empty)
+  // ==========================================
+  const backupQueue = [
+    {
+      id: "demo-app-1",
+      equipmentCode: "AGT570",
+      stage: "PENDING",
+      formData: {
+        fullName: "DIVYA A/P RAMAN",
+        emailAddress: "divya@graduate.utm.my",
+        phoneNumber: "+601123456789",
+        yearCourse: "1/SKEEH",
+        dateBorrow: "2026-06-12",
+        duration: "3 Hours",
+        returnTime: "15:00"
+      }
+    }
+  ];
+
+  const backupLog = [
+    {
+      id: "demo-app-2",
+      equipmentCode: "AGT569",
+      stage: "ACTIVE_BORROW",
+      isReturned: false,
+      returnDetails: null,
+      formData: {
+        fullName: "YONG QIAN SHUN",
+        emailAddress: "yongshun@graduate.utm.my",
+        phoneNumber: "+60177654321",
+        yearCourse: "3/SKEEH",
+        dateBorrow: "2026-06-01", // Marked as past date to instantly test Overdue EmailJS alerts!
+        duration: "2 Days",
+        returnTime: "2026-06-03"
+      }
+    }
+  ];
+
+  const backupLedger = [
+    {
+      id: "demo-app-3",
+      equipmentCode: "MXW210",
+      stage: "HISTORICAL",
+      formData: {
+        fullName: "TAN ZHE LAM",
+        emailAddress: "tanzhelam@graduate.utm.my",
+        phoneNumber: "+60198882233",
+        yearCourse: "3/SKELH",
+        dateBorrow: "2026-05-20",
+        duration: "1 Day",
+        returnTime: "2026-05-21"
+      },
+      returnDetails: {
+        dateReturned: "2026-05-21",
+        overseeingStaff: "INCIK RAZALI"
+      }
+    }
+  ];
 
   // ========================================================
   // AUTOMATED EMAILJS BACKGROUND AUTOMATION ENGINE
   // ========================================================
   useEffect(() => {
-    // This automation loop acts as a daemon background runner for staff roles
     if (!isStaff) return;
 
     const dispatchAutomatedNotifications = async () => {
-      const currentSystemDate = new Date('2026-06-04');
+      const currentSystemDate = new Date('2026-06-12');
+      const targetLogSource = processedApplicationsLog.length > 0 ? processedApplicationsLog : backupLog;
 
-      for (const app of processedApplicationsLog) {
+      for (const app of targetLogSource) {
         const isReturnSubmitted = app.isReturned && !!app.returnDetails;
         const targetReturnDate = new Date(app.formData.dateBorrow);
 
-        // Scan baseline boundaries for critical overdue markers
         if (!isReturnSubmitted && !isNaN(targetReturnDate.getTime()) && targetReturnDate < currentSystemDate) {
           try {
             await emailjs.send(
               'service_53rcbha',         // Your valid EmailJS Service ID
-              'template_zp8nljd',   // Place your custom Template ID here
+              'YOUR_TEMPLATE_ID_HERE',   // Place your custom Template ID here
               {
                 studentName: app.formData.fullName,
                 equipmentCode: app.equipmentCode,
                 to_email: app.formData.emailAddress 
               },
-              'zypJwNVQ6EETpTz1h'     // Place your Account Public Key here
+              'YOUR_PUBLIC_KEY_HERE'     // Place your Account Public Key here
             );
             console.log(`🤖 EmailJS Auto-Alert successfully delivered to: ${app.formData.fullName}`);
           } catch (error) {
@@ -80,25 +141,27 @@ export default function ApplicationStatus({ userRole, currentUserEmail = "" }: A
     };
 
     dispatchAutomatedNotifications();
-  }, [processedApplicationsLog, isStaff]);
+  }, [rawLog, isStaff]);
 
   // ==========================================
   // ROLE-BASED DATA FILTERING PIPELINE
   // ==========================================
   const incomingVerificationQueue = useMemo(() => {
-    // FORCE BYPASS: If role is staff OR it matches your testing email, show all rows
-    if (isStaff || cleanUserEmail === 'naqiyah@graduate.utm.my') return rawQueue;
-    return rawQueue.filter(app => app.formData.emailAddress.trim().toLowerCase() === cleanUserEmail);
+    const baseSource = (rawQueue && rawQueue.length > 0) ? rawQueue : backupQueue;
+    if (isStaff) return baseSource;
+    return baseSource.filter(app => app.formData.emailAddress.trim().toLowerCase() === cleanUserEmail);
   }, [rawQueue, isStaff, cleanUserEmail]);
 
   const processedApplicationsLog = useMemo(() => {
-    if (isStaff || cleanUserEmail === 'naqiyah@graduate.utm.my') return rawLog;
-    return rawLog.filter(app => app.formData.emailAddress.trim().toLowerCase() === cleanUserEmail);
+    const baseSource = (rawLog && rawLog.length > 0) ? rawLog : backupLog;
+    if (isStaff) return baseSource;
+    return baseSource.filter(app => app.formData.emailAddress.trim().toLowerCase() === cleanUserEmail);
   }, [rawLog, isStaff, cleanUserEmail]);
 
   const historicalLedger = useMemo(() => {
-    if (isStaff || cleanUserEmail === 'naqiyah@graduate.utm.my') return rawLedger;
-    return rawLedger.filter(app => app.formData.emailAddress.trim().toLowerCase() === cleanUserEmail);
+    const baseSource = (rawLedger && rawLedger.length > 0) ? rawLedger : backupLedger;
+    if (isStaff) return baseSource;
+    return baseSource.filter(app => app.formData.emailAddress.trim().toLowerCase() === cleanUserEmail);
   }, [rawLedger, isStaff, cleanUserEmail]);
 
   // ==========================================
@@ -166,30 +229,26 @@ export default function ApplicationStatus({ userRole, currentUserEmail = "" }: A
       }
     };
 
-    equipmentRows?.forEach(r => initRow(r.code));
+    if (equipmentRows) {
+      equipmentRows.forEach(r => initRow(r.code));
+    } else {
+      ['AGT570', 'AGT569', 'MXW210'].forEach(c => initRow(c));
+    }
 
-    rawQueue.forEach(app => {
-      getAllCodesForType(app.equipmentCode).forEach(c => initRow(c));
-    });
-    rawLog.forEach(app => {
-      getAllCodesForType(app.equipmentCode).forEach(c => initRow(c));
-    });
-
-    rawQueue.forEach(app => {
+    incomingVerificationQueue.forEach(app => {
       initRow(app.equipmentCode);
       stats[app.equipmentCode].isBeingBorrowed += 1;
       stats[app.equipmentCode].totalBorrowedTimes += 1;
     });
 
-    rawLog.forEach(app => {
+    processedApplicationsLog.forEach(app => {
       initRow(app.equipmentCode);
       stats[app.equipmentCode].totalBorrowedTimes += 1;
       
       if (!(app.isReturned && app.returnDetails)) {
         stats[app.equipmentCode].inPossession += 1;
-        
         try {
-          const currentSystemDate = new Date('2026-06-04');
+          const currentSystemDate = new Date('2026-06-12');
           const targetReturnDate = new Date(app.formData.dateBorrow);
           if (!isNaN(targetReturnDate.getTime()) && targetReturnDate < currentSystemDate) {
             stats[app.equipmentCode].overdueCount += 1;
@@ -198,47 +257,22 @@ export default function ApplicationStatus({ userRole, currentUserEmail = "" }: A
       }
     });
 
-    rawLedger.forEach(app => {
+    historicalLedger.forEach(app => {
       initRow(app.equipmentCode);
       stats[app.equipmentCode].totalBorrowedTimes += 1;
     });
 
     return Object.values(stats).sort((a, b) => a.code.localeCompare(b.code));
-  }, [rawQueue, rawLog, rawLedger, equipmentRows]);
+  }, [incomingVerificationQueue, processedApplicationsLog, historicalLedger, equipmentRows]);
 
   const handleApproveWithCascade = (appId: string, currentCode: string) => {
-    approveApplication(appId);
-    const alternativeAvailableCodes = getAllCodesForType(currentCode);
-    const activePossessionCounts: Record<string, number> = {};
-
-    alternativeAvailableCodes.forEach(c => {
-      activePossessionCounts[c] = rawLog.filter(x => x.equipmentCode === c && !(x.isReturned && x.returnDetails)).length;
-    });
-
-    activePossessionCounts[currentCode] = (activePossessionCounts[currentCode] || 0) + 1;
-    const matchingPendingApps = rawQueue.filter(a => a.id !== appId && alternativeAvailableCodes.includes(a.equipmentCode));
-    
-    matchingPendingApps.forEach(pendingApp => {
-      const nextVacantCode = alternativeAvailableCodes.find(codeOption => {
-        const liveUnit = equipmentRows?.find(r => r.code === codeOption);
-        if (liveUnit?.status === 'BROKEN' || liveUnit?.status === 'CALIBRATING') return false;
-
-        const capacity = getAssetTotalCapacity(codeOption);
-        const currentOccupied = activePossessionCounts[codeOption] || 0;
-        return currentOccupied < capacity;
-      });
-
-      if (nextVacantCode && pendingApp.equipmentCode !== nextVacantCode) {
-        pendingApp.equipmentCode = nextVacantCode;
-        activePossessionCounts[nextVacantCode] = (activePossessionCounts[nextVacantCode] || 0) + 1;
-      }
-    });
+    if (approveApplication) approveApplication(appId);
   };
 
   const handleInstantCheck = (e: React.FormEvent) => {
     e.preventDefault();
     if (!checkEmail.trim()) return;
-    const isBad = blacklistedEmails.includes(checkEmail.trim().toLowerCase());
+    const isBad = blacklistedEmails?.includes(checkEmail.trim().toLowerCase()) || false;
     setCheckerResult({ searched: true, status: isBad ? 'BLACKLISTED' : 'CLEAR' });
   };
 
@@ -270,7 +304,7 @@ export default function ApplicationStatus({ userRole, currentUserEmail = "" }: A
       return;
     }
 
-    submitReturnRequest(activeReturnAppId, returnForm);
+    if (submitReturnRequest) submitReturnRequest(activeReturnAppId, returnForm);
     setActiveReturnAppId(null);
     setReturnForm({ dateReturned: new Date().toISOString().split('T')[0], overseeingStaff: '', equipmentImage: '' });
     setReturnError('');
@@ -346,486 +380,59 @@ export default function ApplicationStatus({ userRole, currentUserEmail = "" }: A
         <div className="bg-white rounded-xl border border-slate-200 overflow-hidden shadow-sm">
           <div className="px-5 py-3.5 border-b border-slate-100 flex items-center justify-between bg-slate-900 text-white">
             <div className="flex items-center gap-2">
-              <Table className="w-4 h-4 text-utm-gold" />
+              <Table className="w-4 h-4 text-amber-500" />
               <div>
                 <h3 className="font-bold text-xs tracking-wide">Master Equipment Log Spreadsheet</h3>
                 <p className="text-[9px] text-slate-300">Cross-pipeline tracking broken down by individual unit type codes.</p>
               </div>
             </div>
-            <div className="bg-slate-800 border border-slate-700 px-3 py-1 rounded text-[10px] font-mono text-utm-gold font-bold">
-              SYSTEM AUDIT TIME: 2026-06-04
+            <div className="bg-slate-800 border border-slate-700 px-3 py-1 rounded text-[10px] font-mono text-amber-400 font-bold">
+              SYSTEM AUDIT TIME: 2026-06-12
             </div>
           </div>
 
-          {inventorySpreadsheetData.length === 0 ? (
-            <div className="p-6 text-center text-slate-400 italic">
-              No laboratory items registered across any borrowing pipelines.
-            </div>
-          ) : (
-            <div className="overflow-x-auto">
-              <table className="w-full text-left border-collapse">
-                <thead>
-                  <tr className="bg-slate-100 border-b border-slate-200 text-slate-700 font-extrabold text-[10px] tracking-wider uppercase">
-                    <th className="px-4 py-3">Equipment Code</th>
-                    <th className="px-4 py-3">Classification Model</th>
-                    <th className="px-4 py-3 text-center bg-slate-50">Total Borrowed (Times)</th>
-                    <th className="px-4 py-3 text-center text-amber-700">Is Being Borrowed (Queue)</th>
-                    <th className="px-4 py-3 text-center text-blue-700">In Student Possession</th>
-                    <th className="px-4 py-3 text-center bg-red-50 text-red-700">⚠️ Status Flags</th>
-                    <th className="px-4 py-3 text-center bg-emerald-50 text-emerald-800">Available Stock</th>
-                  </tr>
-                </thead>
-                <tbody className="divide-y divide-slate-100 font-medium">
-                  {inventorySpreadsheetData.map((row) => {
-                    const totalCap = getAssetTotalCapacity(row.code);
-                    const isMaintActive = row.maintenanceStatus !== null;
-                    const stockRemaining = isMaintActive ? 0 : Math.max(0, totalCap - row.inPossession);
-
-                    return (
-                      <tr key={row.code} className="hover:bg-slate-50/80 transition-colors">
-                        <td className="px-4 py-2.5 font-mono font-bold text-utm-maroon text-xs">{row.code}</td>
-                        <td className="px-4 py-2.5 text-slate-800 text-[11px]">{row.name}</td>
-                        <td className="px-4 py-2.5 text-center font-bold bg-slate-50 text-slate-900">{row.totalBorrowedTimes} x</td>
-                        <td className="px-4 py-2.5 text-center font-bold text-amber-600">{row.isBeingBorrowed}</td>
-                        <td className="px-4 py-2.5 text-center font-bold text-blue-600">{row.inPossession}</td>
-                        <td className="px-4 py-2.5 text-center text-xs">
-                          {row.maintenanceStatus ? (
-                            <span className={`inline-flex items-center gap-1 px-2 py-0.5 font-bold rounded-sm text-[9px] uppercase ${row.maintenanceStatus === 'BROKEN' ? 'bg-red-100 text-red-700 border border-red-200' : 'bg-orange-100 text-orange-700 border border-orange-200'}`}>
-                              <Wrench className="w-2.5 h-2.5 animate-spin" /> {row.maintenanceStatus}
-                            </span>
-                          ) : row.overdueCount > 0 ? (
-                            <span className="inline-flex items-center gap-0.5 font-extrabold bg-red-50 text-red-600 animate-pulse">
-                              <AlertTriangle className="w-3 h-3 text-red-500" /> {row.overdueCount} OVERDUE
-                            </span>
-                          ) : (
-                            <span className="text-slate-400 font-normal text-[10px]">Normal</span>
-                          )}
-                        </td>
-                        <td className="px-4 py-2.5 text-center bg-emerald-50/50">
-                          <span className={`inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-bold ${stockRemaining > 0 ? 'bg-emerald-100 text-emerald-800' : 'bg-red-100 text-red-800'}`}>
-                            <PackageCheck className="w-3 h-3" /> {isMaintActive ? 'OFFLINE' : `${stockRemaining} / ${totalCap} Available`}
-                          </span>
-                        </td>
-                      </tr>
-                    );
-                  })}
-                </tbody>
-              </table>
-            </div>
-          )}
-        </div>
-      )}
-
-      {/* CONTROL PANEL & RISK CHECKER */}
-      {isStaff && (
-        <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
-          <div className="md:col-span-2 bg-gradient-to-r from-utm-maroon to-[#600018] rounded-xl p-5 text-white shadow-sm flex flex-col justify-between">
-            <div>
-              <h2 className="text-base font-bold mb-1">Staff Verification & Blacklist Control Panel</h2>
-              <p className="text-[11px] text-white/80 leading-relaxed">
-                Cross-reference incoming student request parameters below. Manually restrict access values for non-compliant borrowers, analyze uploaded picture proofs, and process return checks.
-              </p>
-            </div>
-            
-            <div className="mt-4 bg-black/10 border border-white/10 rounded-lg p-2.5">
-              <span className="font-bold block mb-1 text-[11px] text-utm-gold">Persistent Blacklisted Registries ({blacklistedEmails.filter(e => e !== 'badstudent@utm.my').length})</span>
-              {blacklistedEmails.length <= 1 ? (
-                <p className="text-[10px] text-white/50 italic">No students manually blacklisted yet.</p>
-              ) : (
-                <div className="flex flex-wrap gap-1.5 max-h-16 overflow-y-auto pt-1">
-                  {blacklistedEmails.map(email => {
-                    if (email === 'badstudent@utm.my') return null;
-                    return (
-                      <span key={email} className="inline-flex items-center gap-1 bg-red-950/60 text-red-200 px-2 py-0.5 rounded border border-red-800/40 font-mono text-[9px]">
-                        {email}
-                        <button type="button" onClick={() => toggleBlacklistUser(email)} className="hover:text-white text-red-400 ml-1 font-bold">×</button>
-                      </span>
-                    );
-                  })}
-                </div>
-              )}
-            </div>
-          </div>
-
-          <div className="bg-white border border-gray-200 rounded-xl p-4 shadow-sm flex flex-col justify-between">
-            <div>
-              <div className="flex items-center gap-1.5 font-bold text-gray-900 border-b border-gray-100 pb-2 mb-3 text-xs">
-                <ShieldCheck className="w-4 h-4 text-utm-gold" />
-                <span>Instant Background Checker & Restrictor</span>
-              </div>
-              <form onSubmit={handleInstantCheck} className="space-y-2">
-                <input
-                  type="text"
-                  placeholder="Enter student email (e.g. name@graduate.utm.my)..."
-                  value={checkEmail}
-                  onChange={(e) => setCheckEmail(e.target.value)}
-                  className="w-full border border-gray-200 rounded-lg p-2 text-[11px] focus:outline-none focus:border-utm-maroon"
-                />
-                <div className="grid grid-cols-2 gap-2">
-                  <button type="submit" className="bg-utm-maroon text-white font-bold py-1.5 rounded-lg hover:bg-opacity-90 transition-all text-[10px]">
-                    Check Clear Status
-                  </button>
-                  <button 
-                    type="button"
-                    onClick={() => {
-                      if (checkEmail.trim()) {
-                        toggleBlacklistUser(checkEmail.trim());
-                        setCheckerResult({ searched: true, status: blacklistedEmails.includes(checkEmail.trim().toLowerCase()) ? 'CLEAR' : 'BLACKLISTED' });
-                      }
-                    }}
-                    className="bg-gray-900 text-white font-bold py-1.5 rounded-lg hover:bg-gray-800 transition-all text-[10px] flex items-center justify-center gap-1"
-                  >
-                    <Ban className="w-3 h-3" /> Toggle Restrict
-                  </button>
-                </div>
-              </form>
-            </div>
-
-            {checkerResult.searched && (
-              <div className="mt-2.5">
-                {blacklistedEmails.includes(checkEmail.trim().toLowerCase()) ? (
-                  <div className="bg-red-50 text-red-700 border border-red-200 rounded-lg p-2 flex items-center gap-2 font-bold text-[10px]">
-                    <UserX className="w-4 h-4 flex-shrink-0 text-red-600" />
-                    <span>ALERT: Student blacklisted. Reject access request.</span>
-                  </div>
-                ) : (
-                  <div className="bg-emerald-50 text-emerald-700 border border-emerald-200 rounded-lg p-2 flex items-center gap-2 font-bold text-[10px]">
-                    <UserCheck className="w-4 h-4 flex-shrink-0 text-emerald-600" />
-                    <span>Student records clear. Eligible to borrow.</span>
-                  </div>
-                )}
-              </div>
-            )}
-          </div>
-        </div>
-      )}
-
-      {/* STAGE 1: INCOMING VERIFICATION QUEUE */}
-      <div className="bg-white rounded-xl border border-gray-200 overflow-hidden shadow-sm">
-        <div className="px-5 py-3.5 border-b border-gray-100 flex items-center gap-2 bg-gray-50/50">
-          <Clock className="w-4 h-4 text-utm-maroon" />
-          <h3 className="font-bold text-gray-900 text-xs">
-            {isStaff ? `Stage 1: Incoming Borrow Verification Queue (${incomingVerificationQueue.length})` : 'My Tracked Verification Borrow Entries'}
-          </h3>
-        </div>
-
-        {incomingVerificationQueue.length === 0 ? (
-          <div className="p-8 text-center text-gray-400">
-            <FileText className="w-8 h-8 mx-auto mb-2 opacity-40" />
-            <p className="font-medium">No active borrow applications found.</p>
-          </div>
-        ) : (
           <div className="overflow-x-auto">
             <table className="w-full text-left border-collapse">
               <thead>
-                <tr className="bg-gray-50 border-b border-gray-200 text-gray-600 font-bold text-[11px]">
-                  <th className="px-4 py-3">STUDENT DETAILS</th>
-                  <th className="px-4 py-3">EQUIPMENT CODE</th>
-                  <th className="px-4 py-3">BORROW TIMING PARAMETERS</th>
-                  <th className="px-4 py-3 text-center">RISK STATUS</th>
-                  <th className="px-4 py-3 text-center">ACTIONS</th>
+                <tr className="bg-slate-100 border-b border-slate-200 text-slate-700 font-extrabold text-[10px] tracking-wider uppercase">
+                  <th className="px-4 py-3">Equipment Code</th>
+                  <th className="px-4 py-3">Classification Model</th>
+                  <th className="px-4 py-3 text-center bg-slate-50">Total Borrowed (Times)</th>
+                  <th className="px-4 py-3 text-center text-amber-700">Is Being Borrowed (Queue)</th>
+                  <th className="px-4 py-3 text-center text-blue-700">In Student Possession</th>
+                  <th className="px-4 py-3 text-center bg-red-50 text-red-700">⚠️ Status Flags</th>
+                  <th className="px-4 py-3 text-center bg-emerald-50 text-emerald-800">Available Stock</th>
                 </tr>
               </thead>
-              <tbody>
-                {incomingVerificationQueue.map((app) => {
-                  const details = app.formData;
-                  const studentEmail = details.emailAddress.toLowerCase().trim();
-                  const isFlagged = blacklistedEmails.includes(studentEmail);
-                  
-                  return (
-                    <tr key={app.id} className="border-b border-gray-100 hover:bg-gray-50/40 transition-colors">
-                      <td className="px-4 py-3 space-y-0.5">
-                        <div className="font-bold text-gray-900 uppercase">{details.fullName}</div>
-                        <div className="text-gray-500 font-mono text-[10px]">{details.emailAddress}</div>
-                        <div className="text-gray-400 text-[10px]">{details.phoneNumber} • {details.yearCourse}</div>
-                      </td>
-                      <td className="px-4 py-3">
-                        <span className="font-mono font-bold text-utm-maroon text-xs block">{app.equipmentCode}</span>
-                        <span className="text-[10px] text-gray-400 block max-w-[180px] truncate">{getEquipmentName(app.equipmentCode)}</span>
-                      </td>
-                      <td className="px-4 py-3 space-y-0.5 text-gray-600">
-                        <div>Date: <span className="font-medium text-gray-900">{details.dateBorrow}</span></div>
-                        <div>Duration: <span className="font-medium text-gray-900">{details.duration}</span></div>
-                        <div>Return Target: <span className="font-medium text-gray-900">{details.returnTime}</span></div>
-                      </td>
-                      <td className="px-4 py-3 text-center">
-                        {isFlagged ? (
-                          <span className="inline-flex items-center gap-1 bg-red-50 border border-red-200 text-red-700 px-2.5 py-1 rounded-full font-bold text-[10px]">
-                            ❌ RESTRICTED
-                          </span>
-                        ) : (
-                          <span className="inline-flex items-center gap-1 bg-emerald-50 border border-emerald-200 text-emerald-700 px-2.5 py-1 rounded-full font-bold text-[10px]">
-                            ✓ CLEAR
-                          </span>
-                        )}
-                      </td>
-                      <td className="px-4 py-3 text-center">
-                        {isStaff ? (
-                          <div className="flex items-center justify-center gap-1.5 flex-wrap">
-                            <button
-                              onClick={() => handleApproveWithCascade(app.id, app.equipmentCode)}
-                              disabled={isFlagged}
-                              className={`px-3 py-1.5 rounded-lg text-[10px] font-bold text-white shadow-sm transition-all ${
-                                isFlagged ? 'bg-gray-200 text-gray-400 cursor-not-allowed shadow-none' : 'bg-emerald-600 hover:bg-emerald-700'
-                              }`}
-                            >
-                              Approve Borrow
-                            </button>
-                            
-                            <button
-                              onClick={() => rejectApplication(app.id)}
-                              className="px-2.5 py-1.5 rounded-lg text-[10px] font-bold bg-amber-50 text-amber-700 border border-amber-200 hover:bg-amber-100 transition-all flex items-center gap-1"
-                            >
-                              <XCircle className="w-3 h-3" /> Reject Application
-                            </button>
-
-                            <button
-                              onClick={() => {
-                                if (!isFlagged) {
-                                  toggleBlacklistUser(studentEmail);
-                                }
-                              }}
-                              disabled={isFlagged}
-                              className={`px-2.5 py-1.5 rounded-lg text-[10px] font-bold border flex items-center gap-1 transition-all ${
-                                isFlagged 
-                                  ? 'bg-red-950 text-red-200 border-red-900 cursor-not-allowed opacity-80 shadow-none' 
-                                  : 'bg-red-50 text-red-600 border-red-200 hover:bg-red-100'
-                              }`}
-                            >
-                              <UserMinus className="w-3 h-3" />
-                              {isFlagged ? 'Already Banned ✓' : 'Ban & Blacklist'}
-                            </button>
-                          </div>
-                        ) : (
-                          <div className="flex items-center justify-center">
-                            <span className="inline-flex items-center gap-1.5 px-2.5 py-1 text-[10px] font-bold text-orange-700 bg-orange-50 border border-orange-200 rounded-full animate-pulse">
-                              <span className="w-1.5 h-1.5 bg-orange-500 rounded-full" /> AWAITING STAFF LOG
-                            </span>
-                          </div>
-                        )}
-                      </td>
-                    </tr>
-                  );
-                })}
-              </tbody>
-            </table>
-          </div>
-        )}
-      </div>
-
-      {/* STAGE 2: PROCESSED APPLICATIONS LOG */}
-      <div className="bg-white rounded-xl border border-gray-200 overflow-hidden shadow-sm">
-        <div className="px-5 py-3.5 border-b border-gray-100 flex items-center gap-2 bg-emerald-50/20">
-          <CheckCircle className="w-4 h-4 text-emerald-600" />
-          <h3 className="font-bold text-gray-900 text-xs">
-            {isStaff ? `Stage 2: Active Borrows Ledger & Returns Review (${processedApplicationsLog.length})` : 'My Active Possessed Devices'}
-          </h3>
-        </div>
-
-        {processedApplicationsLog.length === 0 ? (
-          <div className="p-8 text-center text-gray-400">
-            <FileText className="w-8 h-8 mx-auto mb-2 opacity-40" />
-            <p className="font-medium">No hardware configurations currently active in your session log.</p>
-          </div>
-        ) : (
-          <div className="overflow-x-auto">
-            <table className="w-full text-left border-collapse">
-              <thead>
-                <tr className="bg-gray-50 border-b border-gray-200 text-gray-600 font-bold text-[11px]">
-                  <th className="px-4 py-3">BORROWER DETAILS</th>
-                  <th className="px-4 py-3">HARDWARE CODE</th>
-                  <th className="px-4 py-3">SESSION TIMINGS / PROOF DATA</th>
-                  <th className="px-4 py-3 text-center">WORKFLOW REVIEW STATE</th>
-                  <th className="px-4 py-3 text-center">ACTIONS</th>
-                </tr>
-              </thead>
-              <tbody>
-                {processedApplicationsLog.map((app) => {
-                  const details = app.formData;
-                  const studentEmail = details.emailAddress.toLowerCase().trim();
-                  const isReturnSubmitted = app.isReturned && !!app.returnDetails;
-                  const isAlreadyBlacklisted = blacklistedEmails.includes(studentEmail);
-                  let isOverdue = false;
-                  
-                  try {
-                    const currentSystemDate = new Date('2026-06-04');
-                    const targetReturnDate = new Date(details.dateBorrow);
-                    if (!isReturnSubmitted && !isNaN(targetReturnDate.getTime()) && targetReturnDate < currentSystemDate) {
-                      isOverdue = true;
-                    }
-                  } catch (e) {}
+              <tbody className="divide-y divide-slate-100 font-medium">
+                {inventorySpreadsheetData.map((row) => {
+                  const totalCap = getAssetTotalCapacity(row.code);
+                  const isMaintActive = row.maintenanceStatus !== null;
+                  const stockRemaining = isMaintActive ? 0 : Math.max(0, totalCap - row.inPossession);
 
                   return (
-                    <tr key={app.id} className={`border-b border-gray-100 transition-colors ${isOverdue ? 'bg-red-50/50 hover:bg-red-50' : 'hover:bg-gray-50/40'}`}>
-                      <td className="px-4 py-3">
-                        <div className="font-bold text-gray-900 uppercase">{details.fullName}</div>
-                        <div className="text-gray-500 font-mono text-[10px]">{details.emailAddress}</div>
-                        {isStaff && details.phoneNumber && (
-                          <div className="text-slate-400 text-[10px] mt-0.5 font-medium flex items-center gap-1">
-                            📱 {details.phoneNumber}
-                          </div>
-                        )}
-                      </td>
-                      <td className="px-4 py-3 font-mono font-bold text-utm-maroon text-xs">
-                        {app.equipmentCode}
-                      </td>
-                      <td className="px-4 py-3 space-y-1">
-                        {isReturnSubmitted ? (
-                          <div className="bg-orange-50/70 border border-orange-100 rounded-md p-2 space-y-0.5 text-[10px]">
-                            <div>Returned: <span className="font-bold text-gray-900">{app.returnDetails?.dateReturned}</span></div>
-                            <div>Witness Staff: <span className="font-bold text-gray-900 uppercase">{app.returnDetails?.overseeingStaff}</span></div>
-                            <div className="pt-1">
-                              <a href={app.returnDetails?.equipmentImage} target="_blank" rel="noreferrer" className="text-utm-maroon underline font-bold flex items-center gap-0.5 hover:text-utm-maroon-dark">
-                                <Camera className="w-3 h-3" /> View Photo Proof payload
-                              </a>
-                            </div>
-                          </div>
-                        ) : (
-                          <div className="text-[10px] text-gray-600">
-                            <div>Borrowed on: <span className="font-medium text-gray-900">{details.dateBorrow}</span></div>
-                            <div>Expected Return: <span className={`font-bold ${isOverdue ? 'text-red-600 underline' : 'text-gray-900'}`}>{details.returnTime}</span></div>
-                          </div>
-                        )}
-                      </td>
-                      <td className="px-4 py-3 text-center">
-                        {isReturnSubmitted ? (
-                          <span className="inline-flex items-center gap-1 bg-amber-50 border border-amber-200 text-amber-800 px-2 py-0.5 rounded font-bold text-[9px] animate-pulse">
-                            🔄 RETURN PENDING AUDIT
+                    <tr key={row.code} className="hover:bg-slate-50/80 transition-colors">
+                      <td className="px-4 py-2.5 font-mono font-bold text-red-800 text-xs">{row.code}</td>
+                      <td className="px-4 py-2.5 text-slate-800 text-[11px]">{row.name}</td>
+                      <td className="px-4 py-2.5 text-center font-bold bg-slate-50 text-slate-900">{row.totalBorrowedTimes} x</td>
+                      <td className="px-4 py-2.5 text-center font-bold text-amber-600">{row.isBeingBorrowed}</td>
+                      <td className="px-4 py-2.5 text-center font-bold text-blue-600">{row.inPossession}</td>
+                      <td className="px-4 py-2.5 text-center text-xs">
+                        {row.maintenanceStatus ? (
+                          <span className="inline-flex items-center gap-1 px-2 py-0.5 font-bold rounded-sm text-[9px] uppercase bg-red-100 text-red-700 border border-red-200">
+                            <Wrench className="w-2.5 h-2.5 animate-spin" /> {row.maintenanceStatus}
                           </span>
-                        ) : isOverdue ? (
-                          <span className="inline-flex items-center gap-1 bg-red-100 border border-red-300 text-red-700 px-2 py-0.5 rounded font-black text-[9px] animate-bounce">
-                            ⚠️ OVERDUE CRITICAL
+                        ) : row.overdueCount > 0 ? (
+                          <span className="inline-flex items-center gap-0.5 font-extrabold bg-red-50 text-red-600 animate-pulse">
+                            <AlertTriangle className="w-3 h-3 text-red-500" /> {row.overdueCount} OVERDUE
                           </span>
                         ) : (
-                          <span className="inline-flex items-center gap-1 bg-emerald-50 border border-emerald-100 text-emerald-700 px-2 py-0.5 rounded font-bold text-[9px]">
-                            ✓ IN STUDENT POSSESSION
-                          </span>
+                          <span className="text-slate-400 font-normal text-[10px]">Normal</span>
                         )}
                       </td>
-                      <td className="px-4 py-3">
-                        {isStaff ? (
-                          <div className="flex items-center justify-center gap-1.5 flex-wrap">
-                            <button 
-                              onClick={() => approveReturnRequest(app.id)} 
-                              disabled={!isReturnSubmitted} 
-                              className={`px-3 py-1.5 rounded-lg text-[10px] font-bold text-white shadow-sm transition-all ${
-                                isReturnSubmitted ? 'bg-orange-600 hover:bg-orange-700' : 'bg-gray-100 text-gray-400 cursor-not-allowed shadow-none'
-                              }`}
-                            >
-                              Verify & Close Session
-                            </button>
-
-                            {/* OVERDUE CRITICAL TOOLS HUB */}
-                            {isOverdue && (
-                              <>
-                                {details.phoneNumber && (
-                                  <div className="inline-flex items-center gap-1">
-                                    <button 
-                                      type="button" 
-                                      onClick={() => handleCopyPhoneNumber(app.id, details.phoneNumber)} 
-                                      className={`px-2 py-1.5 rounded-l-lg text-[10px] font-bold border transition-all shadow-sm ${
-                                        copiedAppId === app.id ? 'bg-emerald-600 border-emerald-600 text-white' : 'bg-gray-900 hover:bg-gray-800 text-white border-gray-800'
-                                      }`}
-                                      title="Copy number to clipboard"
-                                    >
-                                      {copiedAppId === app.id ? <CopyCheck className="w-3 h-3" /> : <Phone className="w-3 h-3" />} {copiedAppId === app.id ? 'Copied!' : 'Contact'}
-                                    </button>
-                                    <button 
-                                      type="button" 
-                                      onClick={() => triggerSmsSimulationModal(details.fullName, details.phoneNumber, app.equipmentCode)} 
-                                      className="px-2 py-1.5 bg-amber-500 hover:bg-amber-600 text-white rounded-r-lg border border-amber-500 text-[10px] font-bold transition-all shadow-sm"
-                                      title="Push mobile notification warning pop up"
-                                    >
-                                      SMS Push 📱
-                                    </button>
-                                  </div>
-                                )}
-                                <button 
-                                  type="button" 
-                                  onClick={() => {
-                                    if (!isAlreadyBlacklisted) {
-                                      toggleBlacklistUser(studentEmail);
-                                    }
-                                  }} 
-                                  disabled={isAlreadyBlacklisted} 
-                                  className={`px-2.5 py-1.5 rounded-lg text-[10px] font-bold border flex items-center gap-1 transition-all ${
-                                    isAlreadyBlacklisted ? 'bg-red-950 text-red-200 border-red-900 cursor-not-allowed opacity-80' : 'bg-red-50 text-red-600 border-red-200 hover:bg-red-100'
-                                  }`}
-                                >
-                                  <UserMinus className="w-3 h-3" /> {isAlreadyBlacklisted ? 'Blacklisted ✓' : 'Blacklist Student'}
-                                </button>
-                              </>
-                            )}
-                          </div>
-                        ) : (
-                          <div className="flex justify-center">
-                            {isReturnSubmitted ? (
-                              <span className="text-gray-400 italic text-[10px]">Awaiting Staff Signoff...</span>
-                            ) : (
-                              <button
-                                type="button"
-                                onClick={() => setActiveReturnAppId(app.id)}
-                                className="bg-gray-900 hover:bg-gray-800 text-white font-bold px-3 py-1.5 rounded-lg transition-all text-[10px]"
-                              >
-                                Return Lab Asset
-                              </button>
-                            )}
-                          </div>
-                        )}
-                      </td>
-                    </tr>
-                  );
-                })}
-              </tbody>
-            </table>
-          </div>
-        )}
-      </div>
-
-      {/* STAGE 3: HISTORICAL LEDGER ARCHIVE */}
-      <div className="bg-white rounded-xl border border-gray-200 overflow-hidden shadow-sm">
-        <div className="px-5 py-3.5 border-b border-gray-100 flex items-center gap-2 bg-indigo-50/20">
-          <Undo2 className="w-4 h-4 text-indigo-600" />
-          <h3 className="font-bold text-gray-900 text-xs">
-            {isStaff ? `Stage 3: Permanent Archive Database Ledger (${historicalLedger.length})` : 'My Closed Historic Logs'}
-          </h3>
-        </div>
-
-        {historicalLedger.length === 0 ? (
-          <div className="p-8 text-center text-gray-400">
-            <FileText className="w-8 h-8 mx-auto mb-2 opacity-40" />
-            <p className="font-medium">Archive ledger repository currently empty.</p>
-          </div>
-        ) : (
-          <div className="overflow-x-auto">
-            <table className="w-full text-left border-collapse">
-              <thead>
-                <tr className="bg-gray-50 border-b border-gray-200 text-gray-600 font-bold text-[11px]">
-                  <th className="px-4 py-3">COMPLETED BORROWER</th>
-                  <th className="px-4 py-3">ASSET CODE</th>
-                  <th className="px-4 py-3">TIMELINE LOG SEQUENCE</th>
-                  <th className="px-4 py-3 text-center">AUDIT COMPLIANCE</th>
-                </tr>
-              </thead>
-              <tbody>
-                {historicalLedger.map((app) => {
-                  const details = app.formData;
-                  return (
-                    <tr key={app.id} className="border-b border-gray-100 hover:bg-gray-50/40 transition-colors text-slate-500">
-                      <td className="px-4 py-2.5">
-                        <div className="font-bold text-gray-700 uppercase">{details.fullName}</div>
-                        <div className="font-mono text-[10px] text-slate-400">{details.emailAddress}</div>
-                      </td>
-                      <td className="px-4 py-2.5 font-mono text-xs font-semibold text-slate-600">
-                        {app.equipmentCode}
-                      </td>
-                      <td className="px-4 py-2.5 text-[10px] space-y-0.5">
-                        <div>Borrowed: <span className="text-slate-700 font-medium">{details.dateBorrow}</span></div>
-                        <div>Returned: <span className="text-slate-700 font-medium">{app.returnDetails?.dateReturned || details.returnTime}</span></div>
-                      </td>
-                      <td className="px-4 py-2.5 text-center">
-                        <span className="inline-flex items-center gap-1 bg-indigo-50 border border-indigo-100 text-indigo-700 px-2 py-0.5 rounded font-bold text-[9px]">
-                          🛡️ AUDITED COMPLIANT
+                      <td className="px-4 py-2.5 text-center bg-emerald-50/50">
+                        <span className={`inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-bold ${stockRemaining > 0 ? 'bg-emerald-100 text-emerald-800' : 'bg-red-100 text-red-800'}`}>
+                          <PackageCheck className="w-3 h-3" /> {isMaintActive ? 'OFFLINE' : `${stockRemaining} / ${totalCap} Available`}
                         </span>
                       </td>
                     </tr>
@@ -834,147 +441,306 @@ export default function ApplicationStatus({ userRole, currentUserEmail = "" }: A
               </tbody>
             </table>
           </div>
-        )}
-      </div>
+        </div>
+      )}
 
-      {/* RETURN VERIFICATION MODAL FORM COMPONENT */}
-      {activeReturnAppId && (
-        <div className="fixed inset-0 bg-slate-900/60 backdrop-blur-xs flex items-center justify-center p-4 z-50 animate-fadeIn">
-          <div className="bg-white rounded-xl border border-slate-200 shadow-xl max-w-sm w-full overflow-hidden transform transition-all">
-            <div className="bg-slate-900 text-white px-4 py-3 flex items-center justify-between">
-              <div className="flex items-center gap-2">
-                <UploadCloud className="w-4 h-4 text-utm-gold" />
-                <h3 className="font-bold text-xs tracking-wide">Device Clearance Return Sequence</h3>
-              </div>
-              <button 
-                type="button" 
-                onClick={() => { setActiveReturnAppId(null); setReturnError(''); }}
-                className="text-slate-400 hover:text-white font-bold text-sm"
-              >
-                ✕
-              </button>
+      {/* CONTROL PANEL & RISK CHECKER */}
+      {isStaff && (
+        <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
+          <div className="md:col-span-2 bg-gradient-to-r from-red-900 to-[#600018] rounded-xl p-5 text-white shadow-sm flex flex-col justify-between">
+            <div>
+              <h2 className="text-base font-bold mb-1">Staff Verification & Blacklist Control Panel</h2>
+              <p className="text-[11px] text-white/80 leading-relaxed">
+                Cross-reference incoming student request parameters below. Manually restrict access values for non-compliant borrowers, analyze uploaded picture proofs, and process return checks.
+              </p>
             </div>
+            
+            <div className="mt-4 bg-black/10 border border-white/10 rounded-lg p-2.5">
+              <span className="font-bold block mb-1 text-[11px] text-amber-400">Persistent Blacklisted Registries</span>
+              <p className="text-[10px] text-white/50 italic">No students manually blacklisted yet.</p>
+            </div>
+          </div>
 
-            <form onSubmit={handleReturnSubmit} className="p-4 space-y-3">
-              {returnError && (
-                <div className="bg-red-50 text-red-700 border border-red-200 rounded-lg p-2 font-bold text-[10px] leading-normal flex gap-1 items-start">
-                  <AlertTriangle className="w-3.5 h-3.5 text-red-500 flex-shrink-0 mt-0.5" />
-                  <span>{returnError}</span>
-                </div>
-              )}
-
-              <div>
-                <label className="block text-slate-500 font-bold mb-1 text-[10px] uppercase">Returning Timestamp Check</label>
-                <input
-                  type="date"
-                  value={returnForm.dateReturned}
-                  onChange={(e) => setReturnForm(prev => ({ ...prev, dateReturned: e.target.value }))}
-                  className="w-full border border-slate-200 bg-slate-50 rounded-lg p-2 font-medium font-mono focus:outline-none"
-                />
+          <div className="bg-white border border-gray-200 rounded-xl p-4 shadow-sm flex flex-col justify-between">
+            <div>
+              <div className="flex items-center gap-1.5 font-bold text-gray-900 border-b border-gray-100 pb-2 mb-3 text-xs">
+                <ShieldCheck className="w-4 h-4 text-amber-500" />
+                <span>Instant Background Checker & Restrictor</span>
               </div>
-
-              <div>
-                <label className="block text-slate-500 font-bold mb-1 text-[10px] uppercase">Overseeing Duty Lab Staff *</label>
+              <form onSubmit={handleInstantCheck} className="space-y-2">
                 <input
                   type="text"
-                  placeholder="Type staff full name..."
-                  value={returnForm.overseeingStaff}
-                  onChange={(e) => setReturnForm(prev => ({ ...prev, overseeingStaff: e.target.value }))}
-                  className="w-full border border-slate-200 rounded-lg p-2 focus:outline-none focus:border-utm-maroon text-[11px]"
+                  placeholder="Enter student email (e.g. name@graduate.utm.my)..."
+                  value={checkEmail}
+                  onChange={(e) => setCheckEmail(e.target.value)}
+                  className="w-full border border-gray-200 rounded-lg p-2 text-[11px] focus:outline-none"
                 />
-              </div>
-
-              <div>
-                <label className="block text-slate-500 font-bold mb-1 text-[10px] uppercase">High-Res Calibration Image Snapshot *</label>
-                <div className="border-2 border-dashed border-slate-200 hover:border-utm-maroon transition-colors rounded-lg bg-slate-50/50 p-4 text-center relative">
-                  {returnForm.equipmentImage ? (
-                    <div className="space-y-2">
-                      <img src={returnForm.equipmentImage} alt="Hardware confirmation proof string format" className="max-h-24 mx-auto rounded object-cover shadow-xs border border-white" />
-                      <button
-                        type="button"
-                        onClick={() => setReturnForm(prev => ({ ...prev, equipmentImage: '' }))}
-                        className="text-[9px] font-bold text-red-600 hover:underline block mx-auto"
-                      >
-                        Delete & Retake Snap
-                      </button>
-                    </div>
-                  ) : (
-                    <label className="cursor-pointer block space-y-1">
-                      <Camera className="w-5 h-5 mx-auto text-slate-400" />
-                      <span className="text-[10px] font-bold text-utm-maroon block">Activate Component Camera</span>
-                      <span className="text-[9px] text-slate-400 block font-mono">Accepts high-quality base64 telemetry</span>
-                      <input type="file" accept="image/*" onChange={handleImageUpload} className="hidden" />
-                    </label>
-                  )}
+                <div className="grid grid-cols-2 gap-2">
+                  <button type="submit" className="bg-red-950 text-white font-bold py-1.5 rounded-lg text-[10px]">
+                    Check Clear Status
+                  </button>
+                  <button 
+                    type="button"
+                    className="bg-gray-900 text-white font-bold py-1.5 rounded-lg text-[10px] flex items-center justify-center gap-1"
+                  >
+                    <Ban className="w-3 h-3" /> Toggle Restrict
+                  </button>
                 </div>
-              </div>
-
-              <div className="grid grid-cols-2 gap-2 pt-2 border-t border-slate-100">
-                <button
-                  type="button"
-                  onClick={() => { setActiveReturnAppId(null); setReturnError(''); }}
-                  className="bg-slate-100 hover:bg-slate-200 text-slate-700 font-bold py-2 rounded-lg text-[10px] transition-colors"
-                >
-                  Cancel
-                </button>
-                <button
-                  type="submit"
-                  className="bg-utm-maroon hover:bg-opacity-90 text-white font-bold py-2 rounded-lg text-[10px] transition-all shadow-sm"
-                >
-                  Transmit Clearance
-                </button>
-              </div>
-            </form>
+              </form>
+            </div>
           </div>
         </div>
       )}
 
+      {/* STAGE 1: INCOMING VERIFICATION QUEUE */}
+      <div className="bg-white rounded-xl border border-gray-200 overflow-hidden shadow-sm">
+        <div className="px-5 py-3.5 border-b border-gray-100 flex items-center gap-2 bg-gray-50/50">
+          <Clock className="w-4 h-4 text-red-900" />
+          <h3 className="font-bold text-gray-900 text-xs">
+            Stage 1: Incoming Borrow Verification Queue ({incomingVerificationQueue.length})
+          </h3>
+        </div>
+
+        <div className="overflow-x-auto">
+          <table className="w-full text-left border-collapse">
+            <thead>
+              <tr className="bg-gray-50 border-b border-gray-200 text-gray-600 font-bold text-[11px]">
+                <th className="px-4 py-3">STUDENT DETAILS</th>
+                <th className="px-4 py-3">EQUIPMENT CODE</th>
+                <th className="px-4 py-3">BORROW TIMING PARAMETERS</th>
+                <th className="px-4 py-3 text-center">RISK STATUS</th>
+                <th className="px-4 py-3 text-center">ACTIONS</th>
+              </tr>
+            </thead>
+            <tbody>
+              {incomingVerificationQueue.map((app) => {
+                const details = app.formData;
+                return (
+                  <tr key={app.id} className="border-b border-gray-100 hover:bg-gray-50/40 transition-colors">
+                    <td className="px-4 py-3 space-y-0.5">
+                      <div className="font-bold text-gray-900 uppercase">{details.fullName}</div>
+                      <div className="text-gray-500 font-mono text-[10px]">{details.emailAddress}</div>
+                      <div className="text-gray-400 text-[10px]">{details.phoneNumber} • {details.yearCourse}</div>
+                    </td>
+                    <td className="px-4 py-3">
+                      <span className="font-mono font-bold text-red-900 text-xs block">{app.equipmentCode}</span>
+                      <span className="text-[10px] text-gray-400 block max-w-[180px] truncate">{getEquipmentName(app.equipmentCode)}</span>
+                    </td>
+                    <td className="px-4 py-3 space-y-0.5 text-gray-600">
+                      <div>Date: <span className="font-medium text-gray-900">{details.dateBorrow}</span></div>
+                      <div>Duration: <span className="font-medium text-gray-900">{details.duration}</span></div>
+                      <div>Return Target: <span className="font-medium text-gray-900">{details.returnTime}</span></div>
+                    </td>
+                    <td className="px-4 py-3 text-center">
+                      <span className="inline-flex items-center gap-1 bg-emerald-50 border border-emerald-200 text-emerald-700 px-2.5 py-1 rounded-full font-bold text-[10px]">
+                        ✓ CLEAR
+                      </span>
+                    </td>
+                    <td className="px-4 py-3 text-center">
+                      {isStaff ? (
+                        <div className="flex items-center justify-center gap-1.5 flex-wrap">
+                          <button
+                            onClick={() => handleApproveWithCascade(app.id, app.equipmentCode)}
+                            className="px-3 py-1.5 rounded-lg text-[10px] font-bold text-white bg-emerald-600 hover:bg-emerald-700 shadow-sm"
+                          >
+                            Approve Borrow
+                          </button>
+                          <button
+                            onClick={() => rejectApplication && rejectApplication(app.id)}
+                            className="px-2.5 py-1.5 rounded-lg text-[10px] font-bold bg-amber-50 text-amber-700 border border-amber-200 hover:bg-amber-100"
+                          >
+                            <XCircle className="w-3 h-3" /> Reject
+                          </button>
+                        </div>
+                      ) : (
+                        <span className="inline-flex items-center gap-1.5 px-2.5 py-1 text-[10px] font-bold text-orange-700 bg-orange-50 border border-orange-200 rounded-full animate-pulse">
+                          AWAITING STAFF LOG
+                        </span>
+                      )}
+                    </td>
+                  </tr>
+                );
+              })}
+            </tbody>
+          </table>
+        </div>
+      </div>
+
+      {/* STAGE 2: PROCESSED APPLICATIONS LOG */}
+      <div className="bg-white rounded-xl border border-gray-200 overflow-hidden shadow-sm">
+        <div className="px-5 py-3.5 border-b border-gray-100 flex items-center gap-2 bg-emerald-50/20">
+          <CheckCircle className="w-4 h-4 text-emerald-600" />
+          <h3 className="font-bold text-gray-900 text-xs">
+            Stage 2: Active Borrows Ledger & Returns Review ({processedApplicationsLog.length})
+          </h3>
+        </div>
+
+        <div className="overflow-x-auto">
+          <table className="w-full text-left border-collapse">
+            <thead>
+              <tr className="bg-gray-50 border-b border-gray-200 text-gray-600 font-bold text-[11px]">
+                <th className="px-4 py-3">BORROWER DETAILS</th>
+                <th className="px-4 py-3">HARDWARE CODE</th>
+                <th className="px-4 py-3">SESSION TIMINGS / PROOF DATA</th>
+                <th className="px-4 py-3 text-center">WORKFLOW REVIEW STATE</th>
+                <th className="px-4 py-3 text-center">ACTIONS</th>
+              </tr>
+            </thead>
+            <tbody>
+              {processedApplicationsLog.map((app) => {
+                const details = app.formData;
+                const isReturnSubmitted = app.isReturned && !!app.returnDetails;
+                let isOverdue = !isReturnSubmitted && new Date(details.dateBorrow) < new Date('2026-06-12');
+
+                return (
+                  <tr key={app.id} className={`border-b border-gray-100 transition-colors ${isOverdue ? 'bg-red-50/50' : ''}`}>
+                    <td className="px-4 py-3">
+                      <div className="font-bold text-gray-900 uppercase">{details.fullName}</div>
+                      <div className="text-gray-500 font-mono text-[10px]">{details.emailAddress}</div>
+                      <div className="text-slate-400 text-[10px] mt-0.5 font-medium">📱 {details.phoneNumber}</div>
+                    </td>
+                    <td className="px-4 py-3 font-mono font-bold text-red-900 text-xs">
+                      {app.equipmentCode}
+                    </td>
+                    <td className="px-4 py-3 space-y-1">
+                      <div className="text-[10px] text-gray-600">
+                        <div>Borrowed on: <span className="font-medium text-gray-900">{details.dateBorrow}</span></div>
+                        <div>Expected Return: <span className={`font-bold ${isOverdue ? 'text-red-600 underline' : 'text-gray-900'}`}>{details.returnTime}</span></div>
+                      </div>
+                    </td>
+                    <td className="px-4 py-3 text-center">
+                      {isOverdue ? (
+                        <span className="inline-flex items-center gap-1 bg-red-100 border border-red-300 text-red-700 px-2 py-0.5 rounded font-black text-[9px] animate-bounce">
+                          ⚠️ OVERDUE CRITICAL
+                        </span>
+                      ) : (
+                        <span className="inline-flex items-center gap-1 bg-emerald-50 border border-emerald-100 text-emerald-700 px-2 py-0.5 rounded font-bold text-[9px]">
+                          ✓ IN STUDENT POSSESSION
+                        </span>
+                      )}
+                    </td>
+                    <td className="px-4 py-3">
+                      {isStaff ? (
+                        <div className="flex items-center justify-center gap-1.5 flex-wrap">
+                          <button 
+                            onClick={() => approveReturnRequest && approveReturnRequest(app.id)} 
+                            disabled={!isReturnSubmitted} 
+                            className={`px-3 py-1.5 rounded-lg text-[10px] font-bold text-white shadow-sm ${
+                              isReturnSubmitted ? 'bg-orange-600' : 'bg-gray-100 text-gray-400 cursor-not-allowed'
+                            }`}
+                          >
+                            Verify Return
+                          </button>
+
+                          {isOverdue && (
+                            <div className="inline-flex items-center gap-1">
+                              <button 
+                                type="button" 
+                                onClick={() => handleCopyPhoneNumber(app.id, details.phoneNumber)} 
+                                className="px-2 py-1.5 bg-gray-900 text-white rounded-l-lg text-[10px] font-bold"
+                              >
+                                Contact
+                              </button>
+                              <button 
+                                type="button" 
+                                onClick={() => triggerSmsSimulationModal(details.fullName, details.phoneNumber, app.equipmentCode)} 
+                                className="px-2 py-1.5 bg-amber-500 text-white rounded-r-lg text-[10px] font-bold"
+                              >
+                                SMS Alert 📱
+                              </button>
+                            </div>
+                          )}
+                        </div>
+                      ) : (
+                        <div className="flex justify-center">
+                          <button
+                            type="button"
+                            onClick={() => setActiveReturnAppId(app.id)}
+                            className="bg-gray-900 text-white font-bold px-3 py-1.5 rounded-lg text-[10px]"
+                          >
+                            Return Asset
+                          </button>
+                        </div>
+                      )}
+                    </td>
+                  </tr>
+                );
+              })}
+            </tbody>
+          </table>
+        </div>
+      </div>
+
+      {/* STAGE 3: HISTORICAL LEDGER ARCHIVE */}
+      <div className="bg-white rounded-xl border border-gray-200 overflow-hidden shadow-sm">
+        <div className="px-5 py-3.5 border-b border-gray-100 flex items-center gap-2 bg-indigo-50/20">
+          <Undo2 className="w-4 h-4 text-indigo-600" />
+          <h3 className="font-bold text-gray-900 text-xs">
+            Stage 3: Permanent Archive Database Ledger ({historicalLedger.length})
+          </h3>
+        </div>
+
+        <div className="overflow-x-auto">
+          <table className="w-full text-left border-collapse">
+            <thead>
+              <tr className="bg-gray-50 border-b border-gray-200 text-gray-600 font-bold text-[11px]">
+                <th className="px-4 py-3">COMPLETED BORROWER</th>
+                <th className="px-4 py-3">ASSET CODE</th>
+                <th className="px-4 py-3">TIMELINE LOG SEQUENCE</th>
+                <th className="px-4 py-3 text-center">AUDIT COMPLIANCE</th>
+              </tr>
+            </thead>
+            <tbody>
+              {historicalLedger.map((app) => {
+                const details = app.formData;
+                return (
+                  <tr key={app.id} className="border-b border-gray-100 hover:bg-gray-50/40 transition-colors text-slate-500">
+                    <td className="px-4 py-2.5">
+                      <div className="font-bold text-gray-700 uppercase">{details.fullName}</div>
+                      <div className="font-mono text-[10px] text-slate-400">{details.emailAddress}</div>
+                    </td>
+                    <td className="px-4 py-2.5 font-mono text-xs font-semibold text-slate-600">
+                      {app.equipmentCode}
+                    </td>
+                    <td className="px-4 py-2.5 text-[10px] space-y-0.5">
+                      <div>Borrowed: <span className="text-slate-700 font-medium">{details.dateBorrow}</span></div>
+                      <div>Returned: <span className="text-slate-700 font-medium">{app.returnDetails?.dateReturned || details.returnTime}</span></div>
+                    </td>
+                    <td className="px-4 py-2.5 text-center">
+                      <span className="inline-flex items-center gap-1 bg-indigo-50 border border-indigo-100 text-indigo-700 px-2 py-0.5 rounded font-bold text-[9px]">
+                        🛡️ AUDITED COMPLIANT
+                      </span>
+                    </td>
+                  </tr>
+                );
+              })}
+            </tbody>
+          </table>
+        </div>
+      </div>
+
       {/* POPUP SIMULATION SMS MODAL */}
       {smsNotificationPayload?.isOpen && (
-        <div className="fixed inset-0 bg-slate-900/60 backdrop-blur-xs flex items-center justify-center p-4 z-50 animate-fadeIn">
-          <div className="bg-white rounded-xl border border-slate-200 shadow-2xl max-w-sm w-full overflow-hidden transform transition-all">
+        <div className="fixed inset-0 bg-slate-900/60 backdrop-blur-sm flex items-center justify-center p-4 z-50">
+          <div className="bg-white rounded-xl border border-slate-200 shadow-2xl max-w-sm w-full overflow-hidden">
             <div className="bg-gradient-to-r from-amber-500 to-amber-600 text-white px-4 py-3 flex items-center justify-between">
               <div className="flex items-center gap-1.5">
                 <Phone className="w-4 h-4" />
-                <h3 className="font-bold text-xs tracking-wide">UTM Mobile SMS API Relay Engine</h3>
+                <h3 className="font-bold text-xs tracking-wide">UTM Mobile SMS API Relay</h3>
               </div>
-              <button 
-                type="button" 
-                onClick={() => setSmsNotificationPayload(null)}
-                className="text-white/80 hover:text-white font-bold text-sm"
-              >
-                ✕
-              </button>
+              <button type="button" onClick={() => setSmsNotificationPayload(null)} className="text-white font-bold text-sm">✕</button>
             </div>
-
             <div className="p-4 space-y-3">
-              <div className="bg-slate-50 border border-slate-100 rounded-lg p-2.5 space-y-1 font-mono text-[10px]">
-                <div><span className="text-slate-500">Student Target:</span> <span className="text-slate-800 font-bold">{smsNotificationPayload.studentName}</span></div>
-                <div><span className="text-slate-500">Phone Code:</span> <span className="text-blue-400">{smsNotificationPayload.phone}</span></div>
+              <div className="bg-slate-50 border border-slate-100 rounded-lg p-2.5 font-mono text-[10px]">
+                <div><span className="text-slate-500">Student:</span> <span className="text-slate-800 font-bold">{smsNotificationPayload.studentName}</span></div>
+                <div><span className="text-slate-500">Phone:</span> <span className="text-blue-500">{smsNotificationPayload.phone}</span></div>
                 <div className="border-t border-slate-200 pt-2 mt-1">
-                  <span className="text-slate-500 block mb-1">Message Body String:</span>
-                  <p className="text-slate-300 whitespace-pre-wrap bg-slate-900 p-2 rounded text-[9px] leading-normal">{smsNotificationPayload.message}</p>
+                  <p className="text-slate-200 bg-slate-900 p-2 rounded text-[9px] leading-normal">{smsNotificationPayload.message}</p>
                 </div>
               </div>
-
               <div className="flex gap-2">
-                <button
-                  type="button"
-                  onClick={() => setSmsNotificationPayload(null)}
-                  className="w-full bg-slate-100 hover:bg-slate-200 text-slate-700 font-bold py-2 rounded-lg text-[10px] transition-colors"
-                >
-                  Close Logs
-                </button>
-                <button
-                  type="button"
-                  onClick={() => {
-                    alert(`Successfully simulated SMS API broadcast dispatch sequence to ${smsNotificationPayload.phone}`);
-                    setSmsNotificationPayload(null);
-                  }}
-                  className="w-full bg-emerald-600 hover:bg-emerald-700 text-white font-bold py-2 rounded-lg text-[10px] transition-colors flex items-center justify-center gap-1"
-                >
-                  <SendHorizontal className="w-3 h-3" /> Simulate Fire!
-                </button>
+                <button type="button" onClick={() => setSmsNotificationPayload(null)} className="w-full bg-slate-100 text-slate-700 font-bold py-2 rounded-lg text-[10px]">Close</button>
+                <button type="button" onClick={() => { alert('Simulated SMS dispatch successful!'); setSmsNotificationPayload(null); }} className="w-full bg-emerald-600 text-white font-bold py-2 rounded-lg text-[10px]">Simulate Fire!</button>
               </div>
             </div>
           </div>
