@@ -1,4 +1,510 @@
 import { createContext, useContext, useState, useCallback, useEffect, useMemo, type ReactNode } from 'react';
+import { type BorrowFormData } from '../components/BorrowFormModal';
+
+/*
+ * ============================================================
+ * UTM FKE Lab Inventory — Global Application State
+ * Strict 3-Stage Lifecycle Pipeline Model
+ * ============================================================
+ */
+
+export type EquipmentStatus = 'AVAILABLE' | 'PENDING PICKUP' | 'BORROWED' | 'RETURN_PENDING';
+export type AppStatus = 'PENDING' | 'APPROVED' | 'REJECTED' | 'RETURNED';
+
+export interface ReturnDetailsData {
+  dateReturned: string;
+  overseeingStaff: string;
+  equipmentImage: string; 
+}
+
+export interface ComponentType {
+  name: string;
+  totalUnits: number;
+  unitsOut: number;
+  unitsOnShelf: number;
+}
+
+export interface HistoryEntry {
+  equipmentCode: string;
+  componentType: string;
+  studentName: string;
+  studentEmail: string;
+  borrowDate: string;
+  returnDueTime: string;
+  borrowTimestamp: string;
+  status: 'ACTIVE' | 'RETURNED' | 'PENDING_RETURN';
+  returnedDate?: string;
+}
+
+export interface OscilloscopeRow {
+  no: number;
+  code: string;
+  lastDateUsed: string;
+  labLocation: string;
+  status: EquipmentStatus;
+  verificationBy: string;
+}
+
+export interface Application {
+  id: string;
+  formData: BorrowFormData;
+  equipmentCode: string;
+  submittedAt: string;
+  isBlacklisted: boolean;
+  status: AppStatus;
+  photoAttachment?: string;
+  processedAt?: string;
+  returnDetails?: ReturnDetailsData;
+  stage: 'PENDING' | 'ACTIVE_BORROW' | 'HISTORICAL';
+  isApproved: boolean;
+  isReturned: boolean;
+  isReturnVerified: boolean;
+  approvedAt?: string;
+  returnSubmittedAt?: string;
+  returnVerifiedAt?: string;
+}
+
+interface AppState {
+  equipmentRows: OscilloscopeRow[];
+  applicationQueue: Application[];
+  blacklistedEmails: string[];
+  componentInventory: ComponentType[];
+  transactionHistory: HistoryEntry[];
+  incomingVerificationQueue: Application[];
+  processedApplicationsLog: Application[];
+  historicalLedger: Application[];
+  updateEquipmentStatus: (code: string, newStatus: EquipmentStatus) => void;
+  submitApplication: (formData: BorrowFormData, equipmentCode: string, photoAttachment?: string) => void;
+  approveApplication: (appId: string) => void;
+  rejectApplication: (appId: string) => void;
+  submitReturnRequest: (appId: string, returnData: ReturnDetailsData) => void;
+  approveReturnRequest: (appId: string) => void;
+  toggleBlacklistUser: (email: string) => void;
+  getLastSubmittedForm: () => BorrowFormData | null;
+  // New single-responsibility additions for forgot password state management
+  resetUserPassword: (email: string, newPassword: string) => void;
+  dynamicPasswords: Record<string, string>;
+}
+
+const AppContext = createContext<AppState | null>(null);
+
+const initialEquipment: OscilloscopeRow[] = [
+  { no: 1, code: 'AGT567', lastDateUsed: '2026-05-10', labLocation: 'P04 LEVEL 3', status: 'AVAILABLE', verificationBy: 'RAZALI AHMAD' },
+  { no: 2, code: 'AGT568', lastDateUsed: '2026-05-09', labLocation: 'P04 LEVEL 3', status: 'AVAILABLE', verificationBy: 'RAZALI AHMAD' },
+  { no: 3, code: 'AGT569', lastDateUsed: '2026-05-08', labLocation: 'P03 LEVEL 2', status: 'BORROWED', verificationBy: 'NORHAYATI IDRIS' },
+  { no: 4, code: 'AGT570', lastDateUsed: '2026-05-11', labLocation: 'P04 LEVEL 3', status: 'AVAILABLE', verificationBy: 'RAZALI AHMAD' },
+  { no: 5, code: 'AGT571', lastDateUsed: '2026-05-07', labLocation: 'P03 LEVEL 2', status: 'PENDING PICKUP', verificationBy: 'NORHAYATI IDRIS' },
+  { no: 6, code: 'AGT572', lastDateUsed: '2026-05-06', labLocation: 'P05 LEVEL 1', status: 'AVAILABLE', verificationBy: 'KAMARUZAMAN YUSOF' },
+  { no: 7, code: 'AGT573', lastDateUsed: '2026-05-05', labLocation: 'P05 LEVEL 1', status: 'BORROWED', verificationBy: 'KAMARUZAMAN YUSOF' },
+  { no: 8, code: 'AGT574', lastDateUsed: '2026-05-12', labLocation: 'P04 LEVEL 3', status: 'AVAILABLE', verificationBy: 'RAZALI AHMAD' },
+];
+
+const initialHistory: HistoryEntry[] = [
+  {
+    equipmentCode: 'AGT566',
+    componentType: 'Digital Oscilloscope',
+    studentName: 'NAQIYAH BINTI AHMAD',
+    studentEmail: 'naqiyah@graduate.utm.my',
+    borrowDate: '2026-04-15',
+    returnDueTime: '16:00',
+    borrowTimestamp: '2026-04-15T08:30:00Z',
+    status: 'RETURNED',
+    returnedDate: '2026-04-15'
+  },
+  {
+    equipmentCode: 'ARD-01',
+    componentType: 'Arduino Uno',
+    studentName: 'AMIRUL BIN MOHD',
+    studentEmail: 'amirul@graduate.utm.my',
+    borrowDate: '2026-05-01',
+    returnDueTime: '16:00',
+    borrowTimestamp: '2026-05-01T09:15:00Z',
+    status: 'RETURNED',
+    returnedDate: '2026-05-02'
+  }
+];
+
+const initialApplicationQueue: Application[] = [
+  {
+    id: 'APP-1704067200000-5432',
+    formData: {
+      fullName: 'DIVYA A/P RAMAN',
+      yearCourse: '1/SKEEH',
+      duration: '3 hours',
+      returnTime: '17:00',
+      dateBorrow: '2026-06-03',
+      phoneNumber: '0187654321',
+      emailAddress: 'divya@graduate.utm.my',
+    },
+    equipmentCode: 'AGT570',
+    submittedAt: '2026-06-03T09:30:00Z',
+    isBlacklisted: false,
+    status: 'PENDING',
+    stage: 'PENDING',
+    isApproved: false,
+    isReturned: false,
+    isReturnVerified: false,
+  },
+  {
+    id: 'APP-1704067200000-2189',
+    formData: {
+      fullName: 'AMIRUL BIN MOHD',
+      yearCourse: '2/SKEEH',
+      duration: '2 hours',
+      returnTime: '16:00',
+      dateBorrow: '2026-06-02',
+      phoneNumber: '0176543210',
+      emailAddress: 'amirul@graduate.utm.my',
+    },
+    equipmentCode: 'AGT569',
+    submittedAt: '2026-06-02T10:15:00Z',
+    isBlacklisted: false,
+    status: 'APPROVED',
+    stage: 'ACTIVE_BORROW',
+    isApproved: true,
+    isReturned: false,
+    isReturnVerified: false,
+    approvedAt: '2026-06-02T10:45:00Z',
+    processedAt: '2026-06-02T10:45:00Z',
+  },
+  {
+    id: 'APP-1704067200000-9876',
+    formData: {
+      fullName: 'NAQIYAH BINTI AHMAD',
+      yearCourse: '3/SKELH',
+      duration: '2 hours',
+      returnTime: '16:00',
+      dateBorrow: '2026-05-29',
+      phoneNumber: '0198765432',
+      emailAddress: 'naqiyah@graduate.utm.my',
+    },
+    equipmentCode: 'AGT567',
+    submittedAt: '2026-05-29T08:00:00Z',
+    isBlacklisted: false,
+    status: 'RETURNED',
+    stage: 'HISTORICAL',
+    isApproved: true,
+    isReturned: true,
+    isReturnVerified: true,
+    approvedAt: '2026-05-29T08:30:00Z',
+    returnSubmittedAt: '2026-05-30T13:45:00Z',
+    returnVerifiedAt: '2026-05-30T14:15:00Z',
+    returnDetails: {
+      dateReturned: '2026-05-30',
+      overseeingStaff: 'AMINAH SULAIMAN',
+      equipmentImage: 'data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNkYPhfDwAChwGA60e6kgAAAABJRU5ErkJggg==',
+    },
+    processedAt: '2026-05-29T08:30:00Z',
+  },
+];
+
+const initialInventory: ComponentType[] = [
+  { name: 'Digital Oscilloscope', totalUnits: 8, unitsOut: 2, unitsOnShelf: 6 },
+  { name: 'Arduino Uno', totalUnits: 12, unitsOut: 3, unitsOnShelf: 9 },
+  { name: 'ESP32 Microcontroller', totalUnits: 10, unitsOut: 1, unitsOnShelf: 9 },
+  { name: 'Ultrasonic Sensor', totalUnits: 20, unitsOut: 4, unitsOnShelf: 16 },
+  { name: 'Digital Multimeter', totalUnits: 15, unitsOut: 2, unitsOnShelf: 13 },
+];
+
+export function AppProvider({ children }: { children: ReactNode }) {
+  const [equipmentRows, setEquipmentRows] = useState<OscilloscopeRow[]>(() => {
+    const saved = localStorage.getItem('utm_equipment_rows');
+    return saved ? JSON.parse(saved) : initialEquipment;
+  });
+
+  const [applicationQueue, setApplicationQueue] = useState<Application[]>(() => {
+    const saved = localStorage.getItem('utm_application_queue');
+    return saved ? JSON.parse(saved) : initialApplicationQueue;
+  });
+
+  const [blacklistedEmails, setBlacklistedEmails] = useState<string[]>(() => {
+    const saved = localStorage.getItem('utm_blacklisted_emails');
+    return saved ? JSON.parse(saved) : ['badstudent@utm.my'];
+  });
+
+  const [transactionHistory, setTransactionHistory] = useState<HistoryEntry[]>(() => {
+    const saved = localStorage.getItem('utm_transaction_history');
+    return saved ? JSON.parse(saved) : initialHistory;
+  });
+
+  const [componentInventory, setComponentInventory] = useState<ComponentType[]>(() => {
+    const saved = localStorage.getItem('utm_component_inventory');
+    return saved ? JSON.parse(saved) : initialInventory;
+  });
+
+  // State mapping dictionary tracker to dynamically override passwords at runtime
+  const [dynamicPasswords, setDynamicPasswords] = useState<Record<string, string>>(() => {
+    const saved = localStorage.getItem('utm_dynamic_passwords');
+    return saved ? JSON.parse(saved) : {};
+  });
+
+  // ===================================================================
+  // COMPACT LIFECYCLE SYNCERS
+  // ===================================================================
+  useEffect(() => {
+    localStorage.setItem('utm_equipment_rows', JSON.stringify(equipmentRows));
+  }, [equipmentRows]);
+
+  useEffect(() => {
+    localStorage.setItem('utm_application_queue', JSON.stringify(applicationQueue));
+  }, [applicationQueue]);
+
+  useEffect(() => {
+    localStorage.setItem('utm_blacklisted_emails', JSON.stringify(blacklistedEmails));
+  }, [blacklistedEmails]);
+
+  useEffect(() => {
+    localStorage.setItem('utm_transaction_history', JSON.stringify(transactionHistory));
+  }, [transactionHistory]);
+
+  useEffect(() => {
+    localStorage.setItem('utm_component_inventory', JSON.stringify(componentInventory));
+  }, [componentInventory]);
+
+  useEffect(() => {
+    localStorage.setItem('utm_dynamic_passwords', JSON.stringify(dynamicPasswords));
+  }, [dynamicPasswords]);
+
+  // ===================================================================
+  // LIFE TRANSITION DISPATCHERS
+  // ===================================================================
+  const resetUserPassword = useCallback((email: string, newPassword: string) => {
+    setDynamicPasswords((prev) => ({
+      ...prev,
+      [email.toLowerCase().trim()]: newPassword,
+    }));
+  }, []);
+
+  const updateEquipmentStatus = useCallback((code: string, newStatus: EquipmentStatus) => {
+    setEquipmentRows((prev) =>
+      prev.map((row) => (row.code === code ? { ...row, status: newStatus } : row))
+    );
+  }, []);
+
+  const toggleBlacklistUser = useCallback((email: string) => {
+    setBlacklistedEmails((prev) => {
+      const targetEmail = email.toLowerCase().trim();
+      const updatedList = prev.includes(targetEmail) ? prev.filter((e) => e !== targetEmail) : [...prev, targetEmail];
+      
+      setApplicationQueue((prevApps) =>
+        prevApps.map((app) => 
+          app.formData?.emailAddress?.toLowerCase().trim() === targetEmail
+            ? { ...app, isBlacklisted: updatedList.includes(targetEmail) }
+            : app
+        )
+      );
+      return updatedList;
+    });
+  }, []);
+
+  const submitApplication = useCallback((formData: BorrowFormData, equipmentCode: string, photoAttachment?: string) => {
+    const studentEmail = formData.emailAddress.toLowerCase().trim();
+    let isBlacklisted = blacklistedEmails.includes(studentEmail);
+    const todayStr = new Date().toISOString().split('T')[0];
+    
+    const hasOverdueItem = applicationQueue.some(
+      (app) =>
+        app.formData?.emailAddress?.toLowerCase().trim() === studentEmail &&
+        app.isApproved &&
+        !app.isReturned &&
+        app.formData?.dateBorrow < todayStr
+    );
+
+    if (hasOverdueItem) {
+      isBlacklisted = true;
+      if (!blacklistedEmails.includes(studentEmail)) {
+        setBlacklistedEmails((prev) => [...prev, studentEmail]);
+      }
+    }
+
+    const app: Application = {
+      id: `APP-${Date.now()}-${Math.floor(1000 + Math.random() * 9000)}`,
+      formData,
+      equipmentCode,
+      submittedAt: new Date().toISOString(),
+      isBlacklisted,
+      status: 'PENDING',
+      photoAttachment,
+      stage: 'PENDING', 
+      isApproved: false,
+      isReturned: false,
+      isReturnVerified: false,
+    };
+
+    setApplicationQueue((prev) => [...prev, app]);
+    setEquipmentRows((prevRows) =>
+      prevRows.map((row) => row.code === equipmentCode ? { ...row, status: 'PENDING PICKUP' } : row)
+    );
+  }, [blacklistedEmails, applicationQueue]);
+
+  const approveApplication = useCallback((appId: string) => {
+    setApplicationQueue((prevQueue) => {
+      const target = prevQueue.find((a) => a.id === appId);
+      if (target) {
+        setEquipmentRows((prevRows) =>
+          prevRows.map((row) => row.code === target.equipmentCode ? { ...row, status: 'BORROWED' } : row)
+        );
+        setComponentInventory((prevInv) =>
+          prevInv.map((item) =>
+            item.name === 'Digital Oscilloscope'
+              ? { ...item, unitsOut: item.unitsOut + 1, unitsOnShelf: item.unitsOnShelf - 1 }
+              : item
+          )
+        );
+      }
+      return prevQueue.map((a) =>
+        a.id === appId
+          ? {
+              ...a,
+              status: 'APPROVED',
+              stage: 'ACTIVE_BORROW', 
+              isApproved: true,
+              approvedAt: new Date().toISOString(),
+              processedAt: new Date().toISOString(),
+            }
+          : a
+      );
+    });
+  }, []);
+
+  const rejectApplication = useCallback((appId: string) => {
+    setApplicationQueue((prevQueue) => {
+      const target = prevQueue.find((a) => a.id === appId);
+      if (target) {
+        setEquipmentRows((prevRows) =>
+          prevRows.map((row) => row.code === target.equipmentCode ? { ...row, status: 'AVAILABLE' } : row)
+        );
+      }
+      return prevQueue.filter((a) => a.id !== appId); 
+    });
+  }, []);
+
+  const submitReturnRequest = useCallback((appId: string, returnDetails: ReturnDetailsData) => {
+    setApplicationQueue((prevQueue) => {
+      const target = prevQueue.find((a) => a.id === appId);
+      if (target) {
+        setEquipmentRows((prevRows) =>
+          prevRows.map((row) => row.code === target.equipmentCode ? { ...row, status: 'RETURN_PENDING' } : row)
+        );
+      }
+      return prevQueue.map((a) =>
+        a.id === appId
+          ? {
+              ...a,
+              isReturned: true,
+              returnDetails,
+              returnSubmittedAt: new Date().toISOString(),
+            }
+          : a
+      );
+    });
+  }, []);
+
+  const approveReturnRequest = useCallback((appId: string) => {
+    setApplicationQueue((prevQueue) => {
+      const target = prevQueue.find((a) => a.id === appId);
+      
+      if (target) {
+        setEquipmentRows((prevRows) =>
+          prevRows.map((row) =>
+            row.code === target.equipmentCode
+              ? { ...row, status: 'AVAILABLE', lastDateUsed: target.returnDetails?.dateReturned || new Date().toISOString().split('T')[0] }
+              : row
+          )
+        );
+
+        setComponentInventory((prevInv) =>
+          prevInv.map((item) =>
+            item.name === 'Digital Oscilloscope'
+              ? { ...item, unitsOut: Math.max(0, item.unitsOut - 1), unitsOnShelf: item.unitsOnShelf + 1 }
+              : item
+          )
+        );
+
+        setTransactionHistory((prevHist) => [
+          ...prevHist,
+          {
+            equipmentCode: target.equipmentCode || 'UNKNOWN',
+            componentType: 'Digital Oscilloscope',
+            studentName: target.formData?.fullName || 'UNKNOWN STUDENT',
+            studentEmail: target.formData?.emailAddress || 'unknown@utm.my',
+            borrowDate: target.formData?.dateBorrow || new Date().toISOString().split('T')[0],
+            returnDueTime: target.formData?.returnTime || '16:00',
+            borrowTimestamp: target.approvedAt || new Date().toISOString(),
+            status: 'RETURNED',
+            returnedDate: target.returnDetails?.dateReturned || new Date().toISOString().split('T')[0],
+          }
+        ]);
+      }
+
+      return prevQueue.map((a) =>
+        a.id === appId
+          ? {
+              ...a,
+              status: 'RETURNED',
+              stage: 'HISTORICAL', 
+              isReturnVerified: true,
+              processedAt: new Date().toISOString(),
+              returnVerifiedAt: new Date().toISOString(),
+            }
+          : a
+      );
+    });
+  }, []);
+
+  const getLastSubmittedForm = useCallback(() => {
+    if (applicationQueue.length === 0) return null;
+    return applicationQueue[applicationQueue.length - 1].formData;
+  }, [applicationQueue]);
+
+  const incomingVerificationQueue = useMemo(() => 
+    applicationQueue.filter((app) => app.stage === 'PENDING'),
+    [applicationQueue]
+  );
+
+  const processedApplicationsLog = useMemo(() => 
+    applicationQueue.filter((app) => app.stage === 'ACTIVE_BORROW'),
+    [applicationQueue]
+  );
+
+  const historicalLedger = useMemo(() => 
+    applicationQueue.filter((app) => app.stage === 'HISTORICAL'),
+    [applicationQueue]
+  );
+
+  return (
+    <AppContext.Provider
+      value={{
+        equipmentRows,
+        applicationQueue,
+        blacklistedEmails,
+        componentInventory,
+        transactionHistory,
+        incomingVerificationQueue,
+        processedApplicationsLog,
+        historicalLedger,
+        updateEquipmentStatus,
+        submitApplication,
+        approveApplication,
+        rejectApplication,
+        submitReturnRequest,
+        approveReturnRequest,
+        toggleBlacklistUser,
+        getLastSubmittedForm,
+        resetUserPassword,
+        dynamicPasswords,
+      }}
+    >
+      {children}
+    </AppContext.Provider>
+  );
+}
+
+export function useAppState() {
+  const ctx = useContext(AppContext);
+  if (!ctx) throw new Error('useAppState must be used within AppProvider');
+  return ctx;
+}import { createContext, useContext, useState, useCallback, useEffect, useMemo, type ReactNode } from 'react';
 
 import { type BorrowFormData } from '../components/BorrowFormModal';
 /*
@@ -15,8 +521,7 @@ import { type BorrowFormData } from '../components/BorrowFormModal';
 
 
 
-export type EquipmentStatus = 'AVAILABLE' |
-'PENDING PICKUP' | 'BORROWED' | 'RETURN_PENDING';
+export type EquipmentStatus = 'AVAILABLE' | 'PENDING PICKUP' | 'BORROWED' | 'RETURN_PENDING';
 
 export type AppStatus = 'PENDING' | 'APPROVED' | 'REJECTED' | 'RETURNED';
 export interface ReturnDetailsData {
@@ -36,7 +541,7 @@ export interface ComponentType {
   name: string;
 
   totalUnits: number;
-unitsOut: number;
+  unitsOut: number;
 
   unitsOnShelf: number;
 
@@ -55,7 +560,7 @@ export interface HistoryEntry {
   studentEmail: string;
 
   borrowDate: string;
-returnDueTime: string;
+  returnDueTime: string;
 
   borrowTimestamp: string;
 
@@ -70,7 +575,7 @@ returnDueTime: string;
 export interface OscilloscopeRow {
 
   no: number;
-code: string;
+  code: string;
 
   lastDateUsed: string;
 
@@ -89,7 +594,7 @@ export interface Application {
   id: string;
 
   formData: BorrowFormData;
-equipmentCode: string;
+  equipmentCode: string;
 
   submittedAt: string;
 
@@ -104,7 +609,7 @@ equipmentCode: string;
   returnDetails?: ReturnDetailsData;
 
   stage: 'PENDING' | 'ACTIVE_BORROW' | 'HISTORICAL';
-isApproved: boolean;
+  isApproved: boolean;
 
   isReturned: boolean;
 
@@ -125,7 +630,7 @@ interface AppState {
   equipmentRows: OscilloscopeRow[];
 
   applicationQueue: Application[];
-blacklistedEmails: string[];
+  blacklistedEmails: string[];
 
   componentInventory: ComponentType[];
 
@@ -138,21 +643,20 @@ blacklistedEmails: string[];
   historicalLedger: Application[];
 
   updateEquipmentStatus: (code: string, newStatus: EquipmentStatus) => void;
-submitApplication: (formData: BorrowFormData, equipmentCode: string, photoAttachment?: string) => void;
+  submitApplication: (formData: BorrowFormData, equipmentCode: string, photoAttachment?: string) => void;
 
   approveApplication: (appId: string) => void;
 
   rejectApplication: (appId: string) => void;
-submitReturnRequest: (appId: string, returnData: ReturnDetailsData) => void;
+  submitReturnRequest: (appId: string, returnData: ReturnDetailsData) => void;
 
   approveReturnRequest: (appId: string) => void;
 
   toggleBlacklistUser: (email: string) => void;
-getLastSubmittedForm: () => BorrowFormData | null;
-
-  // New features for persisting passwords across refreshes and handling validation safely
-  resetUserPassword: (email: string, newPassword: string) => boolean;
-  verifyStateCredentials: (email: string, passcode: string) => any | null;
+  getLastSubmittedForm: () => BorrowFormData | null;
+  // Step 1 additions for tracking forgot password states
+  resetUserPassword: (email: string, newPassword: string) => void;
+  dynamicPasswords: Record<string, string>;
 
 }
 
@@ -171,8 +675,7 @@ const initialEquipment: OscilloscopeRow[] = [
 
   { no: 5, code: 'AGT571', lastDateUsed: '2026-05-07', labLocation: 'P03 LEVEL 2', status: 'PENDING PICKUP', verificationBy: 'NORHAYATI IDRIS' },
 
-  { no: 6, 
-code: 'AGT572', lastDateUsed: '2026-05-06', labLocation: 'P05 LEVEL 1', status: 'AVAILABLE', verificationBy: 'KAMARUZAMAN YUSOF' },
+  { no: 6, code: 'AGT572', lastDateUsed: '2026-05-06', labLocation: 'P05 LEVEL 1', status: 'AVAILABLE', verificationBy: 'KAMARUZAMAN YUSOF' },
 
   { no: 7, code: 'AGT573', lastDateUsed: '2026-05-05', labLocation: 'P05 LEVEL 1', status: 'BORROWED', verificationBy: 'KAMARUZAMAN YUSOF' },
 
@@ -219,8 +722,7 @@ const initialHistory: HistoryEntry[] = [
 
     borrowTimestamp: '2026-05-01T09:15:00Z',
 
-    
-status: 'RETURNED',
+    status: 'RETURNED',
 
     returnedDate: '2026-05-02'
 
@@ -260,8 +762,7 @@ const initialApplicationQueue: Application[] = [
 
     isBlacklisted: false,
 
-    
-status: 'PENDING',
+    status: 'PENDING',
 
     stage: 'PENDING',
 
@@ -297,8 +798,7 @@ status: 'PENDING',
 
     equipmentCode: 'AGT569',
 
-    
-submittedAt: '2026-06-02T10:15:00Z',
+    submittedAt: '2026-06-02T10:15:00Z',
 
     isBlacklisted: false,
 
@@ -334,8 +834,7 @@ submittedAt: '2026-06-02T10:15:00Z',
 
       dateBorrow: '2026-05-29',
 
-      phoneNumber: 
-'0198765432',
+      phoneNumber: '0198765432',
 
       emailAddress: 'naqiyah@graduate.utm.my',
 
@@ -373,8 +872,7 @@ submittedAt: '2026-06-02T10:15:00Z',
 
     },
 
-   
-processedAt: '2026-05-29T08:30:00Z',
+    processedAt: '2026-05-29T08:30:00Z',
 
   },
 
@@ -395,8 +893,6 @@ const initialInventory: ComponentType[] = [
   { name: 'Digital Multimeter', totalUnits: 15, unitsOut: 2, unitsOnShelf: 13 },
 
 ];
-import { ALLOWED_USERS } from '../auth';
-
 export function AppProvider({ children }: { children: ReactNode }) {
 
   // ===================================================================
@@ -412,28 +908,28 @@ export function AppProvider({ children }: { children: ReactNode }) {
     return saved ? JSON.parse(saved) : initialEquipment;
 
   });
-const [applicationQueue, setApplicationQueue] = useState<Application[]>(() => {
+  const [applicationQueue, setApplicationQueue] = useState<Application[]>(() => {
 
     const saved = localStorage.getItem('utm_application_queue');
 
     return saved ? JSON.parse(saved) : initialApplicationQueue;
 
   });
-const [blacklistedEmails, setBlacklistedEmails] = useState<string[]>(() => {
+  const [blacklistedEmails, setBlacklistedEmails] = useState<string[]>(() => {
 
     const saved = localStorage.getItem('utm_blacklisted_emails');
 
     return saved ? JSON.parse(saved) : ['badstudent@utm.my'];
 
   });
-const [transactionHistory, setTransactionHistory] = useState<HistoryEntry[]>(() => {
+  const [transactionHistory, setTransactionHistory] = useState<HistoryEntry[]>(() => {
 
     const saved = localStorage.getItem('utm_transaction_history');
 
     return saved ? JSON.parse(saved) : initialHistory;
 
   });
-const [componentInventory, setComponentInventory] = useState<ComponentType[]>(() => {
+  const [componentInventory, setComponentInventory] = useState<ComponentType[]>(() => {
 
     const saved = localStorage.getItem('utm_component_inventory');
 
@@ -441,7 +937,7 @@ const [componentInventory, setComponentInventory] = useState<ComponentType[]>(()
 
   });
 
-  // State mapping database dictionary to securely lock and sync overwritten user passwords runtime parameters
+  // State tracker to dynamically maintain password resets without losing data on browser refresh
   const [dynamicPasswords, setDynamicPasswords] = useState<Record<string, string>>(() => {
     const saved = localStorage.getItem('utm_dynamic_passwords');
     return saved ? JSON.parse(saved) : {};
@@ -458,22 +954,22 @@ const [componentInventory, setComponentInventory] = useState<ComponentType[]>(()
     localStorage.setItem('utm_equipment_rows', JSON.stringify(equipmentRows));
 
   }, [equipmentRows]);
-useEffect(() => {
+  useEffect(() => {
 
     localStorage.setItem('utm_application_queue', JSON.stringify(applicationQueue));
 
   }, [applicationQueue]);
-useEffect(() => {
+  useEffect(() => {
 
     localStorage.setItem('utm_blacklisted_emails', JSON.stringify(blacklistedEmails));
 
   }, [blacklistedEmails]);
-useEffect(() => {
+  useEffect(() => {
 
     localStorage.setItem('utm_transaction_history', JSON.stringify(transactionHistory));
 
   }, [transactionHistory]);
-useEffect(() => {
+  useEffect(() => {
 
     localStorage.setItem('utm_component_inventory', JSON.stringify(componentInventory));
 
@@ -489,39 +985,12 @@ useEffect(() => {
 
   // ===================================================================
 
-  const resetUserPassword = useCallback((email: string, newPassword: string): boolean => {
-    const cleanEmail = email.trim().toLowerCase();
-    if (ALLOWED_USERS[cleanEmail]) {
-      setDynamicPasswords((prev) => ({
-        ...prev,
-        [cleanEmail]: newPassword,
-      }));
-      return true;
-    }
-    return false;
+  const resetUserPassword = useCallback((email: string, newPassword: string) => {
+    setDynamicPasswords((prev) => ({
+      ...prev,
+      [email.toLowerCase().trim()]: newPassword,
+    }));
   }, []);
-
-  const verifyStateCredentials = useCallback((email: string, passcode: string) => {
-    const cleanEmail = email.trim().toLowerCase();
-    const staticRecord = ALLOWED_USERS[cleanEmail];
-    
-    if (!staticRecord) return null;
-
-    // Checks state memory override first. If modified, the old password becomes invalid.
-    const activeValidPassword = dynamicPasswords[cleanEmail] !== undefined 
-      ? dynamicPasswords[cleanEmail] 
-      : staticRecord.password;
-
-    if (activeValidPassword === passcode) {
-      return {
-        email: cleanEmail,
-        name: staticRecord.name,
-        role: staticRecord.role,
-        course: staticRecord.course
-      };
-    }
-    return null;
-  }, [dynamicPasswords]);
 
   const updateEquipmentStatus = useCallback((code: string, newStatus: EquipmentStatus) => {
 
@@ -532,7 +1001,7 @@ useEffect(() => {
     );
 
   }, []);
-const toggleBlacklistUser = useCallback((email: string) => {
+  const toggleBlacklistUser = useCallback((email: string) => {
 
     setBlacklistedEmails((prev) => {
 
@@ -550,8 +1019,7 @@ const toggleBlacklistUser = useCallback((email: string) => {
 
             ? { ...app, isBlacklisted: updatedList.includes(targetEmail) }
 
-         
-    : app
+            : app
 
         )
 
@@ -562,7 +1030,7 @@ const toggleBlacklistUser = useCallback((email: string) => {
     });
 
   }, []);
-const submitApplication = useCallback((formData: BorrowFormData, equipmentCode: string, photoAttachment?: string) => {
+  const submitApplication = useCallback((formData: BorrowFormData, equipmentCode: string, photoAttachment?: string) => {
 
     const studentEmail = formData.emailAddress.toLowerCase().trim();
 
@@ -590,8 +1058,7 @@ const submitApplication = useCallback((formData: BorrowFormData, equipmentCode: 
 
     if (hasOverdueItem) {
 
- 
-     isBlacklisted = true;
+       isBlacklisted = true;
 
       if (!blacklistedEmails.includes(studentEmail)) {
 
@@ -619,7 +1086,6 @@ const submitApplication = useCallback((formData: BorrowFormData, equipmentCode: 
 
       photoAttachment,
 
-      
       stage: 'PENDING', 
 
       isApproved: false,
@@ -629,14 +1095,14 @@ const submitApplication = useCallback((formData: BorrowFormData, equipmentCode: 
       isReturnVerified: false,
 
     };
-setApplicationQueue((prev) => [...prev, app]);
+    setApplicationQueue((prev) => [...prev, app]);
 
     setEquipmentRows((prevRows) =>
 
       prevRows.map((row) => row.code === equipmentCode ? { ...row, status: 'PENDING PICKUP' } : row)
 
     );
-}, [blacklistedEmails, applicationQueue]);
+  }, [blacklistedEmails, applicationQueue]);
 
 
 
@@ -658,8 +1124,7 @@ setApplicationQueue((prev) => [...prev, app]);
 
           prevInv.map((item) =>
 
-     
-        item.name === 'Digital Oscilloscope'
+             item.name === 'Digital Oscilloscope'
 
               ? { ...item, unitsOut: item.unitsOut + 1, unitsOnShelf: item.unitsOnShelf - 1 }
 
@@ -675,8 +1140,7 @@ setApplicationQueue((prev) => [...prev, app]);
 
         a.id === appId
 
-        
-   ? {
+           ? {
 
               ...a,
 
@@ -690,13 +1154,12 @@ setApplicationQueue((prev) => [...prev, app]);
 
               processedAt: new Date().toISOString(),
 
-     
-        }
+             }
 
           : a
 
       );
-});
+    });
 
   }, []);
 
@@ -722,8 +1185,7 @@ setApplicationQueue((prev) => [...prev, app]);
 
     });
 
-  }, 
-[]);
+  }, []);
 
 
 
@@ -747,8 +1209,7 @@ setApplicationQueue((prev) => [...prev, app]);
 
         a.id === appId
 
- 
-          ? {
+           ? {
 
               ...a,
 
@@ -764,8 +1225,7 @@ setApplicationQueue((prev) => [...prev, app]);
 
       );
 
-  
-   });
+     });
 
   }, []);
 
@@ -787,8 +1247,7 @@ setApplicationQueue((prev) => [...prev, app]);
 
             row.code === target.equipmentCode
 
-              ? { ...row, status: 'AVAILABLE', lastDateUsed: target.returnDetails?.dateReturned 
-|| new Date().toISOString().split('T')[0] }
+              ? { ...row, status: 'AVAILABLE', lastDateUsed: target.returnDetails?.dateReturned || new Date().toISOString().split('T')[0] }
 
               : row
 
@@ -806,8 +1265,7 @@ setApplicationQueue((prev) => [...prev, app]);
 
               ? { ...item, unitsOut: Math.max(0, item.unitsOut - 1), unitsOnShelf: item.unitsOnShelf + 1 }
 
-   
-            : item
+                        : item
 
           )
 
@@ -825,30 +1283,24 @@ setApplicationQueue((prev) => [...prev, app]);
 
             componentType: 'Digital Oscilloscope',
 
-           
-  studentName: target.formData?.fullName || 'UNKNOWN STUDENT',
+             studentName: target.formData?.fullName || 'UNKNOWN STUDENT',
 
-            studentEmail: target.formData?.emailAddress ||
-'unknown@utm.my',
+            studentEmail: target.formData?.emailAddress || 'unknown@utm.my',
 
-            borrowDate: target.formData?.dateBorrow ||
-new Date().toISOString().split('T')[0],
+            borrowDate: target.formData?.dateBorrow || new Date().toISOString().split('T')[0],
 
-            returnDueTime: target.formData?.returnTime ||
-'16:00',
+            returnDueTime: target.formData?.returnTime || '16:00',
 
-            borrowTimestamp: target.approvedAt ||
-new Date().toISOString(),
+            borrowTimestamp: target.approvedAt || new Date().toISOString(),
 
             status: 'RETURNED',
 
-            returnedDate: target.returnDetails?.dateReturned ||
-new Date().toISOString().split('T')[0],
+            returnedDate: target.returnDetails?.dateReturned || new Date().toISOString().split('T')[0],
 
           }
 
         ]);
-}
+      }
 
 
 
@@ -866,8 +1318,7 @@ new Date().toISOString().split('T')[0],
 
               isReturnVerified: true,
 
-           
-    processedAt: new Date().toISOString(),
+               processedAt: new Date().toISOString(),
 
               returnVerifiedAt: new Date().toISOString(),
 
@@ -876,7 +1327,7 @@ new Date().toISOString().split('T')[0],
           : a
 
       );
-});
+    });
 
   }, []);
 
@@ -889,7 +1340,7 @@ new Date().toISOString().split('T')[0],
     return applicationQueue[applicationQueue.length - 1].formData;
 
   }, [applicationQueue]);
-// Pure 3-Stage Pipeline Selectors
+  // Pure 3-Stage Pipeline Selectors
 
   const incomingVerificationQueue = useMemo(() => 
 
@@ -898,21 +1349,21 @@ new Date().toISOString().split('T')[0],
     [applicationQueue]
 
   );
-const processedApplicationsLog = useMemo(() => 
+  const processedApplicationsLog = useMemo(() => 
 
     applicationQueue.filter((app) => app.stage === 'ACTIVE_BORROW'),
 
     [applicationQueue]
 
   );
-const historicalLedger = useMemo(() => 
+  const historicalLedger = useMemo(() => 
 
     applicationQueue.filter((app) => app.stage === 'HISTORICAL'),
 
     [applicationQueue]
 
   );
-return (
+  return (
 
     <AppContext.Provider
 
@@ -940,8 +1391,7 @@ return (
 
         approveApplication,
 
- 
-        rejectApplication,
+         rejectApplication,
 
         submitReturnRequest,
 
@@ -950,10 +1400,8 @@ return (
         toggleBlacklistUser,
 
         getLastSubmittedForm,
-
         resetUserPassword,
-
-        verifyStateCredentials,
+        dynamicPasswords,
 
       }}
 
@@ -973,6 +1421,6 @@ export function useAppState() {
   const ctx = useContext(AppContext);
 
   if (!ctx) throw new Error('useAppState must be used within AppProvider');
-return ctx;
+  return ctx;
 
 }
