@@ -63,13 +63,13 @@ export default function ApplicationStatus({ userRole, currentUserEmail = "" }: A
           try {
             await emailjs.send(
               'service_53rcbha',         // Your valid EmailJS Service ID
-              'YOUR_TEMPLATE_ID_HERE',   // Place your custom Template ID here
+              'template_zp8nljd',   // Place your custom Template ID here
               {
                 studentName: app.formData.fullName,
                 equipmentCode: app.equipmentCode,
                 to_email: app.formData.emailAddress 
               },
-              'YOUR_PUBLIC_KEY_HERE'     // Place your Account Public Key here
+              'zypJwNVQ6EETpTz1h'     // Place your Account Public Key here
             );
             console.log(`🤖 EmailJS Auto-Alert successfully delivered to: ${app.formData.fullName}`);
           } catch (error) {
