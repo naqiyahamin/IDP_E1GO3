@@ -293,7 +293,7 @@ export default function ApplicationStatus({ userRole, currentUserEmail = "" }: A
     return Object.values(stats).sort((a, b) => a.code.localeCompare(b.code));
   }, [incomingVerificationQueue, processedApplicationsLog, historicalLedger, equipmentRows]);
 
-  const handleApproveWithCascade = (appId: string, currentCode: string) => {
+  const handleApproveWithCascade = async (appId: string, currentCode: string) => {
     // Check if equipment is already actively borrowed by someone else
     const isAlreadyBorrowed = processedApplicationsLog.some(
       (a) => a.equipmentCode === currentCode && a.stage === 'ACTIVE_BORROW'
@@ -318,7 +318,7 @@ export default function ApplicationStatus({ userRole, currentUserEmail = "" }: A
       return;
     }
 
-    if (approveApplication) approveApplication(appId);
+    if (approveApplication) await approveApplication(appId);
   };
 
   const handleInstantCheck = (e: React.FormEvent) => {
@@ -344,7 +344,7 @@ export default function ApplicationStatus({ userRole, currentUserEmail = "" }: A
     reader.readAsDataURL(file);
   };
 
-  const handleReturnSubmit = (e: React.FormEvent) => {
+  const handleReturnSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!activeReturnAppId) return;
     if (!returnForm.overseeingStaff.trim()) {
@@ -356,7 +356,7 @@ export default function ApplicationStatus({ userRole, currentUserEmail = "" }: A
       return;
     }
 
-    if (submitReturnRequest) submitReturnRequest(activeReturnAppId, returnForm);
+    if (submitReturnRequest) await submitReturnRequest(activeReturnAppId, returnForm);
     setActiveReturnAppId(null);
     setReturnForm({ dateReturned: new Date().toISOString().split('T')[0], overseeingStaff: '', equipmentImage: '' });
     setReturnError('');
@@ -855,8 +855,8 @@ export default function ApplicationStatus({ userRole, currentUserEmail = "" }: A
                 </button>
                 <button
                   type="button"
-                  onClick={() => {
-                    if (banApplication) banApplication(banConfirmAppId);
+                  onClick={async () => {
+                    if (banApplication) await banApplication(banConfirmAppId);
                     const bannedApp = incomingVerificationQueue.find(a => a.id === banConfirmAppId);
                     const studentName = bannedApp?.formData?.fullName || 'Student';
                     setBanConfirmAppId(null);

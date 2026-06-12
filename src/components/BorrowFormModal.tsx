@@ -5,7 +5,7 @@ import { useAppState } from '../context'; // Import our app context hook
 interface BorrowFormProps {
   equipmentCode: string;
   currentUserEmail: string;
-  onSubmit: (data: BorrowFormData, photoAttachment?: string) => boolean;
+  onSubmit: (data: BorrowFormData, photoAttachment?: string) => Promise<boolean>;
   onBack: () => void;
 }
 
@@ -130,7 +130,7 @@ export default function BorrowForm({ equipmentCode, currentUserEmail, onSubmit, 
     setPhotoAttachment('');
   };
 
-  const handleSubmit = (e: React.FormEvent) => {
+  const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     setTouched({
       fullName: true,
@@ -142,7 +142,7 @@ export default function BorrowForm({ equipmentCode, currentUserEmail, onSubmit, 
       emailAddress: true,
     });
     if (allValid) {
-      const success = onSubmit(form, photoAttachment || undefined);
+      const success = await onSubmit(form, photoAttachment || undefined);
       setSubmitFeedback(success ? 'success' : 'error');
       if (success) {
         setTimeout(() => onBack(), 1500);

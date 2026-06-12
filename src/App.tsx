@@ -9,13 +9,14 @@ import AdvancedElectronics from './pages/AdvancedElectronics';
 import LoginPage from './pages/LoginPage';
 import InventoryManagement from './pages/InventoryManagement'; // Imported new inventory page
 import { type AllowedUser } from './auth';
-import { AppProvider } from './context';
+import { AppProvider, useAppState } from './context';
 
 type ViewMode =
   | { page: ActivePage; labId: null }
   | { page: 'laboratories'; labId: string };
 
 function MainDashboardApp() {
+  const { loading } = useAppState();
   const [currentUser, setCurrentUser] = useState<AllowedUser | null>(null);
   const [view, setView] = useState<ViewMode>({ page: 'laboratories', labId: null });
 
@@ -41,6 +42,18 @@ function MainDashboardApp() {
     setCurrentUser(null);
     setView({ page: 'laboratories', labId: null });
   };
+
+  // Show loading spinner while Supabase data is being fetched
+  if (loading) {
+    return (
+      <div className="min-h-screen bg-gray-50 flex items-center justify-center">
+        <div className="text-center space-y-3">
+          <div className="w-8 h-8 border-2 border-utm-maroon border-t-transparent rounded-full animate-spin mx-auto" />
+          <p className="text-sm text-gray-500 font-medium">Loading lab data...</p>
+        </div>
+      </div>
+    );
+  }
 
   // If there's no user logged in, intercept and render the Login Screen
   if (!currentUser) {

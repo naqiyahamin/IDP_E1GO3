@@ -1,14 +1,7 @@
 import { createContext, useContext, useState, useCallback, useEffect, useMemo, type ReactNode } from 'react';
-
+import { supabase } from './lib/supabase';
 import { type BorrowFormData } from './components/BorrowFormModal';
 import { updateUserPasswordInRegistry } from './auth';
-
-/*
- * ============================================================
- * UTM FKE Lab Inventory — Global Application State
- * Strict 3-Stage Lifecycle Pipeline Model
- * ============================================================
- */
 
 export type EquipmentStatus = 'AVAILABLE' | 'PENDING PICKUP' | 'BORROWED' | 'RETURN_PENDING' | 'BROKEN' | 'CALIBRATING';
 
@@ -17,7 +10,7 @@ export type AppStatus = 'PENDING' | 'APPROVED' | 'REJECTED' | 'RETURNED' | 'BANN
 export interface ReturnDetailsData {
   dateReturned: string;
   overseeingStaff: string;
-  equipmentImage: string; 
+  equipmentImage: string;
 }
 
 export interface ComponentType {
@@ -76,13 +69,14 @@ interface AppState {
   incomingVerificationQueue: Application[];
   processedApplicationsLog: Application[];
   historicalLedger: Application[];
+  loading: boolean;
   updateEquipmentStatus: (code: string, newStatus: EquipmentStatus) => void;
-  submitApplication: (formData: BorrowFormData, equipmentCode: string, photoAttachment?: string) => boolean;
-  approveApplication: (appId: string) => void;
-  rejectApplication: (appId: string) => void;
-  banApplication: (appId: string) => void;
-  submitReturnRequest: (appId: string, returnData: ReturnDetailsData) => void;
-  approveReturnRequest: (appId: string) => void;
+  submitApplication: (formData: BorrowFormData, equipmentCode: string, photoAttachment?: string) => Promise<boolean>;
+  approveApplication: (appId: string) => Promise<void>;
+  rejectApplication: (appId: string) => Promise<void>;
+  banApplication: (appId: string) => Promise<void>;
+  submitReturnRequest: (appId: string, returnData: ReturnDetailsData) => Promise<void>;
+  approveReturnRequest: (appId: string) => Promise<void>;
   toggleBlacklistUser: (email: string) => void;
   getLastSubmittedForm: () => BorrowFormData | null;
   resetUserPassword: (email: string, newPassword: string) => boolean;
@@ -90,476 +84,375 @@ interface AppState {
 
 const AppContext = createContext<AppState | null>(null);
 
-const initialEquipment: OscilloscopeRow[] = [
-  { no: 1, code: 'AGT567', lastDateUsed: '2026-05-10', labLocation: 'P04 LEVEL 3', status: 'AVAILABLE', verificationBy: 'RAZALI AHMAD' },
-  { no: 2, code: 'AGT568', lastDateUsed: '2026-05-09', labLocation: 'P04 LEVEL 3', status: 'AVAILABLE', verificationBy: 'RAZALI AHMAD' },
-  { no: 3, code: 'AGT569', lastDateUsed: '2026-05-08', labLocation: 'P03 LEVEL 2', status: 'BORROWED', verificationBy: 'NORHAYATI IDRIS' },
-  { no: 4, code: 'AGT570', lastDateUsed: '2026-05-11', labLocation: 'P04 LEVEL 3', status: 'PENDING PICKUP', verificationBy: 'RAZALI AHMAD' },
-  { no: 5, code: 'AGT571', lastDateUsed: '2026-05-07', labLocation: 'P03 LEVEL 2', status: 'AVAILABLE', verificationBy: 'NORHAYATI IDRIS' },
-  { no: 6, code: 'AGT572', lastDateUsed: '2026-05-06', labLocation: 'P05 LEVEL 1', status: 'AVAILABLE', verificationBy: 'KAMARUZAMAN YUSOF' },
-  { no: 7, code: 'AGT573', lastDateUsed: '2026-05-05', labLocation: 'P05 LEVEL 1', status: 'RETURN_PENDING', verificationBy: 'KAMARUZAMAN YUSOF' },
-  { no: 8, code: 'AGT574', lastDateUsed: '2026-05-12', labLocation: 'P04 LEVEL 3', status: 'AVAILABLE', verificationBy: 'RAZALI AHMAD' },
-];
+function getEquipmentName(code: string): string {
+  if (code.startsWith('AGT')) return 'Digital Oscilloscope';
+  if (code.startsWith('ARD')) return 'Arduino Uno';
+  if (code.startsWith('ESP')) return 'ESP32 Microcontroller';
+  if (code.startsWith('MXW')) return 'Regulated DC Power Supply';
+  return 'Digital Oscilloscope';
+}
 
-const initialHistory: HistoryEntry[] = [
-  {
-    equipmentCode: 'AGT566',
-    componentType: 'Digital Oscilloscope',
-    studentName: 'NAQIYAH BINTI AHMAD',
-    studentEmail: 'naqiyah@graduate.utm.my',
-    borrowDate: '2026-04-15',
-    returnDueTime: '16:00',
-    borrowTimestamp: '2026-04-15T08:30:00Z',
-    status: 'RETURNED',
-    returnedDate: '2026-04-15'
-  },
-  {
-    equipmentCode: 'ARD-01',
-    componentType: 'Arduino Uno',
-    studentName: 'AMIRUL BIN MOHD',
-    studentEmail: 'amirul@graduate.utm.my',
-    borrowDate: '2026-05-01',
-    returnDueTime: '16:00',
-    borrowTimestamp: '2026-05-01T09:15:00Z',
-    status: 'RETURNED',
-    returnedDate: '2026-05-02'
-  }
-];
+function dbRowToApplication(row: Record<string, unknown>): Application {
+  return {
+    id: row.id as string,
+    equipmentCode: row.equipment_code as string,
+    submittedAt: row.submitted_at as string,
+    isBlacklisted: row.is_blacklisted as boolean,
+    status: row.status as AppStatus,
+    photoAttachment: (row.photo_attachment as string) || undefined,
+    stage: row.stage as Application['stage'],
+    isApproved: row.is_approved as boolean,
+    isReturned: row.is_returned as boolean,
+    isReturnVerified: row.is_return_verified as boolean,
+    approvedAt: (row.approved_at as string) || undefined,
+    processedAt: (row.processed_at as string) || undefined,
+    returnSubmittedAt: (row.return_submitted_at as string) || undefined,
+    returnVerifiedAt: (row.return_verified_at as string) || undefined,
+    returnDetails: (row.return_date_returned || row.return_overseeing_staff || row.return_equipment_image)
+      ? {
+          dateReturned: (row.return_date_returned as string) || '',
+          overseeingStaff: (row.return_overseeing_staff as string) || '',
+          equipmentImage: (row.return_equipment_image as string) || '',
+        }
+      : undefined,
+    formData: {
+      fullName: row.student_name as string,
+      emailAddress: row.student_email as string,
+      phoneNumber: row.student_phone as string,
+      yearCourse: row.student_year_course as string,
+      dateBorrow: row.borrow_date as string,
+      duration: row.duration as string,
+      returnTime: row.return_target as string,
+    },
+  };
+}
 
-const initialApplicationQueue: Application[] = [
-  {
-    id: 'APP-1704067200000-5432',
-    formData: {
-      fullName: 'DIVYA A/P RAMAN',
-      yearCourse: '1/SKEEH',
-      duration: '3 hours',
-      returnTime: '17:00',
-      dateBorrow: '2026-06-03',
-      phoneNumber: '0187654321',
-      emailAddress: 'divya@graduate.utm.my',
-    },
-    equipmentCode: 'AGT570',
-    submittedAt: '2026-06-03T09:30:00Z',
-    isBlacklisted: false,
-    status: 'PENDING',
-    stage: 'PENDING',
-    isApproved: false,
-    isReturned: false,
-    isReturnVerified: false,
-  },
-  {
-    id: 'APP-1704067200000-2189',
-    formData: {
-      fullName: 'AMIRUL BIN MOHD',
-      yearCourse: '2/SKEEH',
-      duration: '2 hours',
-      returnTime: '16:00',
-      dateBorrow: '2026-06-02',
-      phoneNumber: '0176543210',
-      emailAddress: 'amirul@graduate.utm.my',
-    },
-    equipmentCode: 'AGT569',
-    submittedAt: '2026-06-02T10:15:00Z',
-    isBlacklisted: false,
-    status: 'APPROVED',
-    stage: 'ACTIVE_BORROW',
-    isApproved: true,
-    isReturned: false,
-    isReturnVerified: false,
-    approvedAt: '2026-06-02T10:45:00Z',
-    processedAt: '2026-06-02T10:45:00Z',
-  },
-  {
-    id: 'APP-1704067200000-7654',
-    formData: {
-      fullName: 'FARHANA BINTI ZULKIFLI',
-      yearCourse: '4/SKELH',
-      duration: '1.5 hours',
-      returnTime: '15:30',
-      dateBorrow: '2026-06-01',
-      phoneNumber: '0195555555',
-      emailAddress: 'farhana@graduate.utm.my',
-    },
-    equipmentCode: 'AGT573',
-    submittedAt: '2026-06-01T11:00:00Z',
-    isBlacklisted: false,
-    status: 'PENDING',
-    stage: 'RETURN_PENDING',
-    isApproved: true,
-    isReturned: true,
-    isReturnVerified: false,
-    approvedAt: '2026-06-01T11:30:00Z',
-    returnSubmittedAt: '2026-06-03T14:20:00Z',
-    returnDetails: {
-      dateReturned: '2026-06-03',
-      overseeingStaff: 'RAZALI AHMAD',
-      equipmentImage: 'data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNkYPhfDwAChwGA60e6kgAAAABJRU5ErkJggg==',
-    },
-    processedAt: '2026-06-01T11:30:00Z',
-  },
-  {
-    id: 'APP-1704067200000-9876',
-    formData: {
-      fullName: 'NAQIYAH BINTI AHMAD',
-      yearCourse: '3/SKELH',
-      duration: '2 hours',
-      returnTime: '16:00',
-      dateBorrow: '2026-05-29',
-      phoneNumber: '0198765432',
-      emailAddress: 'naqiyah@graduate.utm.my',
-    },
-    equipmentCode: 'AGT567',
-    submittedAt: '2026-05-29T08:00:00Z',
-    isBlacklisted: false,
-    status: 'RETURNED',
-    stage: 'HISTORICAL',
-    isApproved: true,
-    isReturned: true,
-    isReturnVerified: true,
-    approvedAt: '2026-05-29T08:30:00Z',
-    returnSubmittedAt: '2026-05-30T13:45:00Z',
-    returnVerifiedAt: '2026-05-30T14:15:00Z',
-    returnDetails: {
-      dateReturned: '2026-05-30',
-      overseeingStaff: 'AMINAH SULAIMAN',
-      equipmentImage: 'data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNkYPhfDwAChwGA60e6kgAAAABJRU5ErkJggg==',
-    },
-    processedAt: '2026-05-29T08:30:00Z',
-  },
-];
+function dbRowToEquipment(row: Record<string, unknown>): OscilloscopeRow {
+  return {
+    no: row.no as number,
+    code: row.code as string,
+    lastDateUsed: row.last_date_used as string,
+    labLocation: row.lab_location as string,
+    status: row.status as EquipmentStatus,
+    verificationBy: row.verification_by as string,
+  };
+}
 
-const initialInventory: ComponentType[] = [
-  { name: 'Digital Oscilloscope', totalUnits: 8, unitsOut: 2, unitsOnShelf: 6 },
-  { name: 'Arduino Uno', totalUnits: 12, unitsOut: 3, unitsOnShelf: 9 },
-  { name: 'ESP32 Microcontroller', totalUnits: 10, unitsOut: 1, unitsOnShelf: 9 },
-  { name: 'Ultrasonic Sensor', totalUnits: 20, unitsOut: 4, unitsOnShelf: 16 },
-  { name: 'Digital Multimeter', totalUnits: 15, unitsOut: 2, unitsOnShelf: 13 },
-];
+function dbRowToInventory(row: Record<string, unknown>): ComponentType {
+  return {
+    name: row.name as string,
+    totalUnits: row.total_units as number,
+    unitsOut: row.units_out as number,
+    unitsOnShelf: row.units_on_shelf as number,
+  };
+}
+
+function dbRowToHistory(row: Record<string, unknown>): HistoryEntry {
+  return {
+    equipmentCode: row.equipment_code as string,
+    componentType: row.component_type as string,
+    studentName: row.student_name as string,
+    studentEmail: row.student_email as string,
+    borrowDate: row.borrow_date as string,
+    returnDueTime: row.return_due_time as string,
+    borrowTimestamp: row.borrow_timestamp as string,
+    status: row.status as HistoryEntry['status'],
+    returnedDate: (row.returned_date as string) || undefined,
+  };
+}
 
 export function AppProvider({ children }: { children: ReactNode }) {
-  // ===================================================================
-  // FIX: LAZY REHYDRATION STATE INITIALIZERS (Eliminates overwrite race condition)
-  // ===================================================================
-  const [equipmentRows, setEquipmentRows] = useState<OscilloscopeRow[]>(() => {
-    const saved = localStorage.getItem('utm_equipment_rows');
-    return saved ? JSON.parse(saved) : initialEquipment;
-  });
+  const [equipmentRows, setEquipmentRows] = useState<OscilloscopeRow[]>([]);
+  const [applicationQueue, setApplicationQueue] = useState<Application[]>([]);
+  const [blacklistedEmails, setBlacklistedEmails] = useState<string[]>([]);
+  const [componentInventory, setComponentInventory] = useState<ComponentType[]>([]);
+  const [transactionHistory, setTransactionHistory] = useState<HistoryEntry[]>([]);
+  const [loading, setLoading] = useState(true);
 
-  const [applicationQueue, setApplicationQueue] = useState<Application[]>(() => {
-    const savedVersion = localStorage.getItem('utm_data_version');
-    const currentVersion = '3-stage-v2';
-    if (savedVersion !== currentVersion) {
-      localStorage.removeItem('utm_application_queue');
-      localStorage.setItem('utm_data_version', currentVersion);
-    }
-    const saved = localStorage.getItem('utm_application_queue');
-    const parsed = saved ? JSON.parse(saved) : [];
-    return parsed.length > 0 ? parsed : initialApplicationQueue;
-  });
+  const fetchAllData = useCallback(async () => {
+    const [appsRes, equipRes, invRes, blackRes, histRes] = await Promise.all([
+      supabase.from('applications').select('*').order('submitted_at', { ascending: true }),
+      supabase.from('equipment_rows').select('*').order('no', { ascending: true }),
+      supabase.from('component_inventory').select('*').order('name', { ascending: true }),
+      supabase.from('blacklisted_emails').select('email'),
+      supabase.from('transaction_history').select('*').order('borrow_timestamp', { ascending: true }),
+    ]);
 
-  const [blacklistedEmails, setBlacklistedEmails] = useState<string[]>(() => {
-    const saved = localStorage.getItem('utm_blacklisted_emails');
-    return saved ? JSON.parse(saved) : ['badstudent@utm.my'];
-  });
-
-  const [transactionHistory, setTransactionHistory] = useState<HistoryEntry[]>(() => {
-    const saved = localStorage.getItem('utm_transaction_history');
-    return saved ? JSON.parse(saved) : initialHistory;
-  });
-
-  const [componentInventory, setComponentInventory] = useState<ComponentType[]>(() => {
-    const saved = localStorage.getItem('utm_component_inventory');
-    return saved ? JSON.parse(saved) : initialInventory;
-  });
-
-  // ===================================================================
-  // COMPACT LIFECYCLE SYNCERS (Saves changes automatically into Storage logs)
-  // ===================================================================
-  useEffect(() => {
-    localStorage.setItem('utm_equipment_rows', JSON.stringify(equipmentRows));
-  }, [equipmentRows]);
+    if (appsRes.data) setApplicationQueue(appsRes.data.map(dbRowToApplication));
+    if (equipRes.data) setEquipmentRows(equipRes.data.map(dbRowToEquipment));
+    if (invRes.data) setComponentInventory(invRes.data.map(dbRowToInventory));
+    if (blackRes.data) setBlacklistedEmails(blackRes.data.map((r: Record<string, unknown>) => r.email as string));
+    if (histRes.data) setTransactionHistory(histRes.data.map(dbRowToHistory));
+    setLoading(false);
+  }, []);
 
   useEffect(() => {
-    localStorage.setItem('utm_application_queue', JSON.stringify(applicationQueue));
-  }, [applicationQueue]);
+    fetchAllData();
+  }, [fetchAllData]);
 
+  // Real-time subscription for applications table
   useEffect(() => {
-    localStorage.setItem('utm_blacklisted_emails', JSON.stringify(blacklistedEmails));
-  }, [blacklistedEmails]);
+    const channel = supabase
+      .channel('applications-realtime')
+      .on(
+        'postgres_changes',
+        { event: '*', schema: 'public', table: 'applications' },
+        () => {
+          supabase
+            .from('applications')
+            .select('*')
+            .order('submitted_at', { ascending: true })
+            .then((res) => {
+              if (res.data) setApplicationQueue(res.data.map(dbRowToApplication));
+            });
+        }
+      )
+      .on(
+        'postgres_changes',
+        { event: '*', schema: 'public', table: 'equipment_rows' },
+        () => {
+          supabase
+            .from('equipment_rows')
+            .select('*')
+            .order('no', { ascending: true })
+            .then((res) => {
+              if (res.data) setEquipmentRows(res.data.map(dbRowToEquipment));
+            });
+        }
+      )
+      .on(
+        'postgres_changes',
+        { event: '*', schema: 'public', table: 'component_inventory' },
+        () => {
+          supabase
+            .from('component_inventory')
+            .select('*')
+            .order('name', { ascending: true })
+            .then((res) => {
+              if (res.data) setComponentInventory(res.data.map(dbRowToInventory));
+            });
+        }
+      )
+      .on(
+        'postgres_changes',
+        { event: '*', schema: 'public', table: 'blacklisted_emails' },
+        () => {
+          supabase
+            .from('blacklisted_emails')
+            .select('email')
+            .then((res) => {
+              if (res.data) setBlacklistedEmails(res.data.map((r: Record<string, unknown>) => r.email as string));
+            });
+        }
+      )
+      .on(
+        'postgres_changes',
+        { event: '*', schema: 'public', table: 'transaction_history' },
+        () => {
+          supabase
+            .from('transaction_history')
+            .select('*')
+            .order('borrow_timestamp', { ascending: true })
+            .then((res) => {
+              if (res.data) setTransactionHistory(res.data.map(dbRowToHistory));
+            });
+        }
+      )
+      .subscribe();
 
-  useEffect(() => {
-    localStorage.setItem('utm_transaction_history', JSON.stringify(transactionHistory));
-  }, [transactionHistory]);
+    return () => {
+      supabase.removeChannel(channel);
+    };
+  }, []);
 
-  useEffect(() => {
-    localStorage.setItem('utm_component_inventory', JSON.stringify(componentInventory));
-  }, [componentInventory]);
-
-  // ===================================================================
-  // LIFE TRANSITION DISPATCHERS
-  // ===================================================================
   const updateEquipmentStatus = useCallback((code: string, newStatus: EquipmentStatus) => {
-    setEquipmentRows((prev) =>
-      prev.map((row) => (row.code === code ? { ...row, status: newStatus } : row))
-    );
+    supabase.from('equipment_rows').update({ status: newStatus }).eq('code', code).then();
   }, []);
 
   const toggleBlacklistUser = useCallback((email: string) => {
-    setBlacklistedEmails((prev) => {
-      const targetEmail = email.toLowerCase().trim();
-      const updatedList = prev.includes(targetEmail) ? prev.filter((e) => e !== targetEmail) : [...prev, targetEmail];
-      
-      setApplicationQueue((prevApps) =>
-        prevApps.map((app) => 
-          app.formData?.emailAddress?.toLowerCase().trim() === targetEmail
-            ? { ...app, isBlacklisted: updatedList.includes(targetEmail) }
-            : app
-        )
-      );
-      return updatedList;
-    });
-  }, []);
-
-  const submitApplication = useCallback((formData: BorrowFormData, equipmentCode: string, photoAttachment?: string) => {
-    const studentEmail = formData.emailAddress.toLowerCase().trim();
-    let isBlacklisted = blacklistedEmails.includes(studentEmail);
-    const todayStr = new Date().toISOString().split('T')[0];
-
-    const hasOverdueItem = applicationQueue.some(
-      (app) =>
-        app.formData?.emailAddress?.toLowerCase().trim() === studentEmail &&
-        app.isApproved &&
-        !app.isReturned &&
-        app.formData?.dateBorrow < todayStr
-    );
-
-    if (hasOverdueItem) {
-      isBlacklisted = true;
-      if (!blacklistedEmails.includes(studentEmail)) {
-        setBlacklistedEmails((prev) => [...prev, studentEmail]);
-      }
+    const targetEmail = email.toLowerCase().trim();
+    if (blacklistedEmails.includes(targetEmail)) {
+      supabase.from('blacklisted_emails').delete().eq('email', targetEmail).then();
+    } else {
+      supabase.from('blacklisted_emails').insert({ email: targetEmail }).then();
     }
+  }, [blacklistedEmails]);
 
-    const app: Application = {
-      id: crypto.randomUUID(),
-      formData,
-      equipmentCode,
-      submittedAt: new Date().toISOString(),
-      isBlacklisted,
+  const submitApplication = useCallback(async (formData: BorrowFormData, equipmentCode: string, photoAttachment?: string): Promise<boolean> => {
+    const studentEmail = formData.emailAddress.toLowerCase().trim();
+    const isBlacklisted = blacklistedEmails.includes(studentEmail);
+
+    const row: Record<string, unknown> = {
+      student_email: studentEmail,
+      student_name: formData.fullName,
+      student_phone: formData.phoneNumber,
+      student_year_course: formData.yearCourse,
+      equipment_code: equipmentCode,
+      equipment_name: getEquipmentName(equipmentCode),
+      borrow_date: formData.dateBorrow,
+      duration: formData.duration,
+      return_target: formData.returnTime,
+      photo_attachment: photoAttachment || null,
       status: 'PENDING',
-      photoAttachment,
       stage: 'PENDING',
-      isApproved: false,
-      isReturned: false,
-      isReturnVerified: false,
+      is_blacklisted: isBlacklisted,
+      is_approved: false,
+      is_returned: false,
+      is_return_verified: false,
     };
 
-    try {
-      setApplicationQueue((prev) => [...prev, app]);
-      return true;
-    } catch {
-      return false;
+    const { error } = await supabase.from('applications').insert(row);
+    return !error;
+  }, [blacklistedEmails]);
+
+  const approveApplication = useCallback(async (appId: string) => {
+    const { data: target } = await supabase.from('applications').select('*').eq('id', appId).single();
+    if (!target) return;
+
+    const equipmentCode = target.equipment_code as string;
+
+    const { data: activeBorrows } = await supabase
+      .from('applications')
+      .select('id')
+      .eq('equipment_code', equipmentCode)
+      .eq('stage', 'ACTIVE_BORROW');
+
+    if (activeBorrows && activeBorrows.length > 0) {
+      await supabase.from('applications').update({ status: 'REJECTED', stage: 'PENDING' }).eq('id', appId);
+      return;
     }
-  }, [blacklistedEmails, applicationQueue]);
 
-  const approveApplication = useCallback((appId: string) => {
-    setApplicationQueue((prevQueue) => {
-      const target = prevQueue.find((a) => a.id === appId);
-      if (!target) return prevQueue;
+    const equipmentName = getEquipmentName(equipmentCode);
+    const { data: invItem } = await supabase.from('component_inventory').select('*').eq('name', equipmentName).single();
+    if (invItem && (invItem.units_on_shelf as number) <= 0) {
+      await supabase.from('applications').update({ status: 'REJECTED', stage: 'PENDING' }).eq('id', appId);
+      return;
+    }
 
-      // Stock availability check: count how many units of this equipment code are already borrowed
-      const equipmentCode = target.equipmentCode;
-      const activeBorrowsForCode = prevQueue.filter(
-        (a) => a.equipmentCode === equipmentCode && a.stage === 'ACTIVE_BORROW'
-      ).length;
-
-      // Each equipment code represents a single physical unit
-      // If already borrowed by someone else, deny approval
-      const isAlreadyBorrowed = activeBorrowsForCode > 0;
-
-      if (isAlreadyBorrowed) {
-        // Mark as rejected due to insufficient stock instead of approving
-        return prevQueue.map((a) =>
-          a.id === appId
-            ? { ...a, status: 'REJECTED' as const, stage: 'PENDING' as const }
-            : a
-        );
-      }
-
-      // Check component inventory for the matching equipment type
-      const equipmentName = equipmentCode.startsWith('AGT') ? 'Digital Oscilloscope'
-        : equipmentCode.startsWith('ARD') ? 'Arduino Uno'
-        : equipmentCode.startsWith('ESP') ? 'ESP32 Microcontroller'
-        : equipmentCode.startsWith('MXW') ? 'Regulated DC Power Supply'
-        : 'Digital Oscilloscope';
-
-      setComponentInventory((prevInv) => {
-        const item = prevInv.find((i) => i.name === equipmentName);
-        if (item && item.unitsOnShelf <= 0) {
-          // Insufficient stock — signal rejection
-          return prevInv;
-        }
-        return prevInv.map((i) =>
-          i.name === equipmentName
-            ? { ...i, unitsOut: i.unitsOut + 1, unitsOnShelf: Math.max(0, i.unitsOnShelf - 1) }
-            : i
-        );
-      });
-
-      setEquipmentRows((prevRows) =>
-        prevRows.map((row) => row.code === equipmentCode ? { ...row, status: 'BORROWED' as const } : row)
-      );
-
-      return prevQueue.map((a) =>
-        a.id === appId
-          ? {
-              ...a,
-              status: 'APPROVED' as const,
-              stage: 'ACTIVE_BORROW' as const,
-              isApproved: true,
-              approvedAt: new Date().toISOString(),
-              processedAt: new Date().toISOString(),
-            }
-          : a
-      );
-    });
+    await Promise.all([
+      supabase.from('applications').update({
+        status: 'APPROVED',
+        stage: 'ACTIVE_BORROW',
+        is_approved: true,
+        approved_at: new Date().toISOString(),
+        processed_at: new Date().toISOString(),
+      }).eq('id', appId),
+      supabase.from('equipment_rows').update({ status: 'BORROWED' }).eq('code', equipmentCode),
+      supabase.from('component_inventory').update({
+        units_out: (invItem?.units_out as number ?? 0) + 1,
+        units_on_shelf: Math.max(0, (invItem?.units_on_shelf as number ?? 0) - 1),
+      }).eq('name', equipmentName),
+    ]);
   }, []);
 
-  const rejectApplication = useCallback((appId: string) => {
-    setApplicationQueue((prevQueue) => {
-      const target = prevQueue.find((a) => a.id === appId);
-      if (target) {
-        const otherActiveForCode = prevQueue.filter(
-          (a) => a.id !== appId && a.equipmentCode === target.equipmentCode &&
-            (a.stage === 'PENDING' || a.stage === 'ACTIVE_BORROW')
-        );
-        if (otherActiveForCode.length === 0) {
-          setEquipmentRows((prevRows) =>
-            prevRows.map((row) => row.code === target.equipmentCode ? { ...row, status: 'AVAILABLE' as const } : row)
-          );
-        }
-      }
-      return prevQueue.filter((a) => a.id !== appId);
-    });
+  const rejectApplication = useCallback(async (appId: string) => {
+    const { data: target } = await supabase.from('applications').select('equipment_code, stage').eq('id', appId).single();
+    if (!target) return;
+
+    const equipmentCode = target.equipment_code as string;
+
+    // Check if other active apps use this equipment code
+    const { data: otherActive } = await supabase
+      .from('applications')
+      .select('id')
+      .neq('id', appId)
+      .eq('equipment_code', equipmentCode)
+      .in('stage', ['PENDING', 'ACTIVE_BORROW']);
+
+    const shouldRelease = !otherActive || otherActive.length === 0;
+
+    await supabase.from('applications').delete().eq('id', appId);
+
+    if (shouldRelease) {
+      await supabase.from('equipment_rows').update({ status: 'AVAILABLE' }).eq('code', equipmentCode);
+    }
   }, []);
 
-  const banApplication = useCallback((appId: string) => {
-    setApplicationQueue((prevQueue) => {
-      const target = prevQueue.find((a) => a.id === appId);
-      if (!target) return prevQueue;
+  const banApplication = useCallback(async (appId: string) => {
+    const { data: target } = await supabase.from('applications').select('student_email, equipment_code').eq('id', appId).single();
+    if (!target) return;
 
-      const studentEmail = target.formData?.emailAddress?.toLowerCase().trim();
-      if (studentEmail) {
-        setBlacklistedEmails((prev) => {
-          if (prev.includes(studentEmail)) return prev;
-          return [...prev, studentEmail];
-        });
-      }
+    const studentEmail = (target.student_email as string).toLowerCase().trim();
+    const equipmentCode = target.equipment_code as string;
 
-      // Revert equipment status if no other active apps for this code
-      const otherActiveForCode = prevQueue.filter(
-        (a) => a.id !== appId && a.equipmentCode === target.equipmentCode &&
-          (a.stage === 'PENDING' || a.stage === 'ACTIVE_BORROW')
-      );
-      if (otherActiveForCode.length === 0) {
-        setEquipmentRows((prevRows) =>
-          prevRows.map((row) => row.code === target.equipmentCode ? { ...row, status: 'AVAILABLE' as const } : row)
-        );
-      }
+    await Promise.all([
+      supabase.from('applications').update({
+        status: 'BANNED',
+        stage: 'HISTORICAL',
+        is_blacklisted: true,
+        processed_at: new Date().toISOString(),
+      }).eq('id', appId),
+      supabase.from('blacklisted_emails').insert({ email: studentEmail }).then(() => {
+        // ignore conflict if already exists
+      }),
+    ]);
 
-      // Move to HISTORICAL with BANNED status (preserved for audit)
-      return prevQueue.map((a) =>
-        a.id === appId
-          ? {
-              ...a,
-              status: 'BANNED' as const,
-              stage: 'HISTORICAL' as const,
-              isBlacklisted: true,
-              processedAt: new Date().toISOString(),
-            }
-          : a
-      );
-    });
+    // Check if other active apps use this equipment code
+    const { data: otherActive } = await supabase
+      .from('applications')
+      .select('id')
+      .neq('id', appId)
+      .eq('equipment_code', equipmentCode)
+      .in('stage', ['PENDING', 'ACTIVE_BORROW']);
+
+    if (!otherActive || otherActive.length === 0) {
+      await supabase.from('equipment_rows').update({ status: 'AVAILABLE' }).eq('code', equipmentCode);
+    }
   }, []);
 
-  const submitReturnRequest = useCallback((appId: string, returnDetails: ReturnDetailsData) => {
-    setApplicationQueue((prevQueue) => {
-      const target = prevQueue.find((a) => a.id === appId);
-      if (target) {
-        setEquipmentRows((prevRows) =>
-          prevRows.map((row) => row.code === target.equipmentCode ? { ...row, status: 'RETURN_PENDING' } : row)
-        );
-      }
-      return prevQueue.map((a) =>
-        a.id === appId
-          ? {
-              ...a,
-              isReturned: true,
-              stage: 'RETURN_PENDING' as const,
-              returnDetails,
-              returnSubmittedAt: new Date().toISOString(),
-            }
-          : a
-      );
-    });
+  const submitReturnRequest = useCallback(async (appId: string, returnData: ReturnDetailsData) => {
+    await Promise.all([
+      supabase.from('applications').update({
+        is_returned: true,
+        stage: 'RETURN_PENDING',
+        return_date_returned: returnData.dateReturned,
+        return_overseeing_staff: returnData.overseeingStaff,
+        return_equipment_image: returnData.equipmentImage,
+        return_submitted_at: new Date().toISOString(),
+      }).eq('id', appId),
+      supabase.from('equipment_rows').update({ status: 'RETURN_PENDING' }).eq('code',
+        (await supabase.from('applications').select('equipment_code').eq('id', appId).single()).data?.equipment_code ?? ''
+      ),
+    ]);
   }, []);
 
-  const approveReturnRequest = useCallback((appId: string) => {
-    setApplicationQueue((prevQueue) => {
-      const target = prevQueue.find((a) => a.id === appId);
+  const approveReturnRequest = useCallback(async (appId: string) => {
+    const { data: target } = await supabase.from('applications').select('*').eq('id', appId).single();
+    if (!target) return;
 
-      if (target) {
-        setEquipmentRows((prevRows) =>
-          prevRows.map((row) =>
-            row.code === target.equipmentCode
-              ? { ...row, status: 'AVAILABLE' as const, lastDateUsed: target.returnDetails?.dateReturned || new Date().toISOString().split('T')[0] }
-              : row
-          )
-        );
+    const equipmentCode = target.equipment_code as string;
+    const equipmentName = getEquipmentName(equipmentCode);
 
-        const equipmentName = target.equipmentCode.startsWith('AGT') ? 'Digital Oscilloscope'
-          : target.equipmentCode.startsWith('ARD') ? 'Arduino Uno'
-          : target.equipmentCode.startsWith('ESP') ? 'ESP32 Microcontroller'
-          : target.equipmentCode.startsWith('MXW') ? 'Regulated DC Power Supply'
-          : 'Digital Oscilloscope';
+    const { data: invItem } = await supabase.from('component_inventory').select('*').eq('name', equipmentName).single();
 
-        setComponentInventory((prevInv) =>
-          prevInv.map((item) =>
-            item.name === equipmentName
-              ? { ...item, unitsOut: Math.max(0, item.unitsOut - 1), unitsOnShelf: item.unitsOnShelf + 1 }
-              : item
-          )
-        );
-
-        setTransactionHistory((prevHist) => [
-          ...prevHist,
-          {
-            equipmentCode: target.equipmentCode || 'UNKNOWN',
-            componentType: equipmentName,
-            studentName: target.formData?.fullName || 'UNKNOWN STUDENT',
-            studentEmail: target.formData?.emailAddress || 'unknown@utm.my',
-            borrowDate: target.formData?.dateBorrow || new Date().toISOString().split('T')[0],
-            returnDueTime: target.formData?.returnTime || '16:00',
-            borrowTimestamp: target.approvedAt || new Date().toISOString(),
-            status: 'RETURNED',
-            returnedDate: target.returnDetails?.dateReturned || new Date().toISOString().split('T')[0],
-          }
-        ]);
-      }
-
-      return prevQueue.map((a) =>
-        a.id === appId
-          ? {
-              ...a,
-              status: 'RETURNED' as const,
-              stage: 'HISTORICAL' as const,
-              isReturnVerified: true,
-              processedAt: new Date().toISOString(),
-              returnVerifiedAt: new Date().toISOString(),
-            }
-          : a
-      );
-    });
+    await Promise.all([
+      supabase.from('applications').update({
+        status: 'RETURNED',
+        stage: 'HISTORICAL',
+        is_return_verified: true,
+        processed_at: new Date().toISOString(),
+        return_verified_at: new Date().toISOString(),
+      }).eq('id', appId),
+      supabase.from('equipment_rows').update({
+        status: 'AVAILABLE',
+        last_date_used: target.return_date_returned || new Date().toISOString().split('T')[0],
+      }).eq('code', equipmentCode),
+      supabase.from('component_inventory').update({
+        units_out: Math.max(0, (invItem?.units_out as number ?? 1) - 1),
+        units_on_shelf: (invItem?.units_on_shelf as number ?? 0) + 1,
+      }).eq('name', equipmentName),
+      supabase.from('transaction_history').insert({
+        equipment_code: equipmentCode,
+        component_type: equipmentName,
+        student_name: target.student_name,
+        student_email: target.student_email,
+        borrow_date: target.borrow_date,
+        return_due_time: target.return_target,
+        borrow_timestamp: target.approved_at || new Date().toISOString(),
+        status: 'RETURNED',
+        returned_date: target.return_date_returned || new Date().toISOString().split('T')[0],
+      }),
+    ]);
   }, []);
 
   const getLastSubmittedForm = useCallback(() => {
@@ -571,18 +464,17 @@ export function AppProvider({ children }: { children: ReactNode }) {
     return updateUserPasswordInRegistry(email, newPassword);
   }, []);
 
-  // Pure 3-Stage Pipeline Selectors
   const incomingVerificationQueue = useMemo(() =>
     applicationQueue.filter((app) => app.stage === 'PENDING' || app.stage === 'RETURN_PENDING'),
     [applicationQueue]
   );
 
-  const processedApplicationsLog = useMemo(() => 
+  const processedApplicationsLog = useMemo(() =>
     applicationQueue.filter((app) => app.stage === 'ACTIVE_BORROW'),
     [applicationQueue]
   );
 
-  const historicalLedger = useMemo(() => 
+  const historicalLedger = useMemo(() =>
     applicationQueue.filter((app) => app.stage === 'HISTORICAL'),
     [applicationQueue]
   );
@@ -598,6 +490,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
         incomingVerificationQueue,
         processedApplicationsLog,
         historicalLedger,
+        loading,
         updateEquipmentStatus,
         submitApplication,
         approveApplication,

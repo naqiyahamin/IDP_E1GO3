@@ -47,9 +47,9 @@ export function EquipmentAvailability({ userRole, currentUserEmail, onSuccessRed
   const pendingCount = equipmentRows.filter((r) => r.status === 'PENDING PICKUP' || r.status === 'RETURN_PENDING').length;
   const borrowedCount = equipmentRows.filter((r) => r.status === 'BORROWED').length;
 
-  const handleBorrowSubmitWithAttachment = (data: BorrowFormData, photoBase64?: string): boolean => {
+  const handleBorrowSubmitWithAttachment = async (data: BorrowFormData, photoBase64?: string): Promise<boolean> => {
     if (borrowTarget) {
-      const success = submitApplication(data, borrowTarget, photoBase64);
+      const success = await submitApplication(data, borrowTarget, photoBase64);
       if (success) {
         setBorrowTarget(null);
         onSuccessRedirect?.();
