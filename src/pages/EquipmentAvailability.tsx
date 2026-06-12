@@ -1,28 +1,35 @@
 import { useState } from 'react';
-import { Cpu, CheckCircle2, AlertTriangle, Clock, History, FileSpreadsheet, Eye, Wrench } from 'lucide-react';
+import {
+  Cpu,
+  CheckCircle2,
+  AlertTriangle,
+  Clock,
+  History,
+  FileSpreadsheet,
+  Eye,
+  Wrench,
+} from 'lucide-react';
 import BorrowFormModal, { type BorrowFormData } from '../components/BorrowFormModal';
 import TinkerIoTSimulator from '../components/TinkerIoTSimulator';
 import { useAppState, type EquipmentStatus, type Application } from '../context';
 import type { UserRole } from '../auth';
 
-// SURGICAL ADDITION: Extended the map dictionary to support BROKEN and CALIBRATING badging layout
 const statusBadge: Record<EquipmentStatus | 'BROKEN' | 'CALIBRATING', string> = {
-  'AVAILABLE': 'bg-emerald-50 text-emerald-700 border-emerald-200',
+  AVAILABLE: 'bg-emerald-50 text-emerald-700 border-emerald-200',
   'PENDING PICKUP': 'bg-orange-50 text-orange-700 border-orange-200',
-  'BORROWED': 'bg-red-50 text-red-700 border-red-200',
-  'RETURN_PENDING': 'bg-blue-50 text-blue-700 border-blue-200',
-  'BROKEN': 'bg-red-100 text-red-800 border-red-300',
-  'CALIBRATING': 'bg-orange-100 text-orange-800 border-orange-300',
+  BORROWED: 'bg-red-50 text-red-700 border-red-200',
+  RETURN_PENDING: 'bg-blue-50 text-blue-700 border-blue-200',
+  BROKEN: 'bg-red-100 text-red-800 border-red-300',
+  CALIBRATING: 'bg-orange-100 text-orange-800 border-orange-300',
 };
 
-// SURGICAL ADDITION: Extended status color dot maps
 const statusDot: Record<EquipmentStatus | 'BROKEN' | 'CALIBRATING', string> = {
-  'AVAILABLE': 'bg-emerald-500',
+  AVAILABLE: 'bg-emerald-500',
   'PENDING PICKUP': 'bg-orange-500',
-  'BORROWED': 'bg-red-500',
-  'RETURN_PENDING': 'bg-blue-500',
-  'BROKEN': 'bg-red-600 animate-pulse',
-  'CALIBRATING': 'bg-orange-500 animate-pulse',
+  BORROWED: 'bg-red-500',
+  RETURN_PENDING: 'bg-blue-500',
+  BROKEN: 'bg-red-600 animate-pulse',
+  CALIBRATING: 'bg-orange-500 animate-pulse',
 };
 
 interface EquipmentAvailabilityProps {
@@ -31,32 +38,76 @@ interface EquipmentAvailabilityProps {
   onSuccessRedirect?: () => void;
 }
 
-export function EquipmentAvailability({ userRole, currentUserEmail, onSuccessRedirect }: EquipmentAvailabilityProps) {
-  const { 
-    equipmentRows, 
-    updateEquipmentStatus, 
+export function EquipmentAvailability({
+  userRole,
+  currentUserEmail,
+  onSuccessRedirect,
+}: EquipmentAvailabilityProps) {
+  const {
+    equipmentRows,
+    updateEquipmentStatus,
     submitApplication,
     processedApplicationsLog,
-    historicalLedger 
+    historicalLedger,
   } = useAppState();
-  
+
   const [borrowTarget, setBorrowTarget] = useState<string | null>(null);
   const [activePreviewImage, setActivePreviewImage] = useState<string | null>(null);
 
   const availableCount = equipmentRows.filter((r) => r.status === 'AVAILABLE').length;
-  const pendingCount = equipmentRows.filter((r) => r.status === 'PENDING PICKUP' || r.status === 'RETURN_PENDING').length;
+  const pendingCount = equipmentRows.filter(
+    (r) => r.status === 'PENDING PICKUP' || r.status === 'RETURN_PENDING'
+  ).length;
   const borrowedCount = equipmentRows.filter((r) => r.status === 'BORROWED').length;
 
-  const handleBorrowSubmitWithAttachment = async (data: BorrowFormData, photoBase64?: string): Promise<boolean> => {
-    if (borrowTarget) {
-      const success = await submitApplication(data, borrowTarget, photoBase64);
-      if (success) {
-        setBorrowTarget(null);
-        onSuccessRedirect?.();
-      }
-      return success;
+  const getEquipmentTypeKey = (code: string) => {
+    const match = code.match(/^[A-Za-z]+/);
+    return match ? match[0].toUpperCase() : code.slice(0, 3).toUpperCase();
+  };
+
+  const findAvailableRedirectCode = (requestedCode: string): string | null => {
+    const requestedItem = equipmentRows.find((row) => row.code === requestedCode);
+
+    if (requestedItem?.status === 'AVAILABLE') {
+      return requestedCode;
     }
-    return false;
+
+    const requestedTypeKey = getEquipmentTypeKey(requestedCode);
+
+    const alternativeItem = equipmentRows.find((row) => {
+      const sameType = getEquipmentTypeKey(row.code) === requestedTypeKey;
+      const isNotRequestedCode = row.code !== requestedCode;
+      const isAvailable = row.status === 'AVAILABLE';
+
+      return sameType && isNotRequestedCode && isAvailable;
+    });
+
+    return alternativeItem?.code || null;
+  };
+
+  const handleBorrowSubmitWithAttachment = async (
+    data: BorrowFormData,
+    photoBase64?: string
+  ): Promise<boolean> => {
+    if (!borrowTarget) return false;
+
+    const finalEquipmentCode = findAvailableRedirectCode(borrowTarget);
+
+    if (!finalEquipmentCode) {
+      alert(
+        'No available equipment with the same type/code is currently available. Please try again later or choose another equipment.'
+      );
+      return false;
+    }
+
+    const success = await submitApplication(data, finalEquipmentCode, photoBase64);
+
+    if (success) {
+      setBorrowTarget(null);
+      onSuccessRedirect?.();
+    }
+
+    return success;
   };
 
   const agt567Status = equipmentRows.find((r) => r.code === 'AGT567')?.status ?? 'AVAILABLE';
@@ -73,6 +124,7 @@ export function EquipmentAvailability({ userRole, currentUserEmail, onSuccessRed
             onBack={() => setBorrowTarget(null)}
           />
         </div>
+
         <div className="w-72 flex-shrink-0">
           <div className="sticky top-20">
             <TinkerIoTSimulator
@@ -88,7 +140,6 @@ export function EquipmentAvailability({ userRole, currentUserEmail, onSuccessRed
 
   return (
     <div className="space-y-6">
-      {/* Summary Cards */}
       <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
         <div className="bg-white rounded-xl border border-gray-200 p-5">
           <div className="flex items-center gap-3">
@@ -101,6 +152,7 @@ export function EquipmentAvailability({ userRole, currentUserEmail, onSuccessRed
             </div>
           </div>
         </div>
+
         <div className="bg-white rounded-xl border border-gray-200 p-5">
           <div className="flex items-center gap-3">
             <div className="w-10 h-10 rounded-lg bg-orange-50 flex items-center justify-center">
@@ -112,6 +164,7 @@ export function EquipmentAvailability({ userRole, currentUserEmail, onSuccessRed
             </div>
           </div>
         </div>
+
         <div className="bg-white rounded-xl border border-gray-200 p-5">
           <div className="flex items-center gap-3">
             <div className="w-10 h-10 rounded-lg bg-red-50 flex items-center justify-center">
@@ -125,16 +178,16 @@ export function EquipmentAvailability({ userRole, currentUserEmail, onSuccessRed
         </div>
       </div>
 
-      {/* Main content Area */}
       <div className="flex flex-col lg:flex-row gap-6">
-        {/* Data Table */}
         <div className="flex-1 bg-white rounded-xl border border-gray-200 overflow-hidden">
           <div className="px-5 py-4 border-b border-gray-100 flex items-center gap-3">
             <div className="w-8 h-8 rounded-lg bg-utm-maroon/10 flex items-center justify-center">
               <Cpu className="w-4 h-4 text-utm-maroon" />
             </div>
             <div>
-              <h3 className="font-bold text-gray-900 text-sm">Oscilloscope Live Stock Tracker</h3>
+              <h3 className="font-bold text-gray-900 text-sm">
+                Oscilloscope Live Stock Tracker
+              </h3>
               <p className="text-[10px] text-gray-500">Advanced Electronics Laboratory</p>
             </div>
           </div>
@@ -143,15 +196,30 @@ export function EquipmentAvailability({ userRole, currentUserEmail, onSuccessRed
             <table className="w-full text-sm">
               <thead>
                 <tr className="bg-gray-50 border-b border-gray-200">
-                  <th className="text-center px-4 py-3 font-semibold text-gray-600 text-xs w-12">NO</th>
-                  <th className="text-left px-4 py-3 font-semibold text-gray-600 text-xs">CODE</th>
-                  <th className="text-left px-4 py-3 font-semibold text-gray-600 text-xs">LAST DATE OF BEING USED</th>
-                  <th className="text-left px-4 py-3 font-semibold text-gray-600 text-xs">LAB LOCATION</th>
-                  <th className="text-center px-4 py-3 font-semibold text-gray-600 text-xs">STATUS</th>
-                  <th className="text-left px-4 py-3 font-semibold text-gray-600 text-xs">VERIFICATION BY</th>
-                  <th className="text-center px-4 py-3 font-semibold text-gray-600 text-xs">ACTION</th>
+                  <th className="text-center px-4 py-3 font-semibold text-gray-600 text-xs w-12">
+                    NO
+                  </th>
+                  <th className="text-left px-4 py-3 font-semibold text-gray-600 text-xs">
+                    CODE
+                  </th>
+                  <th className="text-left px-4 py-3 font-semibold text-gray-600 text-xs">
+                    LAST DATE OF BEING USED
+                  </th>
+                  <th className="text-left px-4 py-3 font-semibold text-gray-600 text-xs">
+                    LAB LOCATION
+                  </th>
+                  <th className="text-center px-4 py-3 font-semibold text-gray-600 text-xs">
+                    STATUS
+                  </th>
+                  <th className="text-left px-4 py-3 font-semibold text-gray-600 text-xs">
+                    VERIFICATION BY
+                  </th>
+                  <th className="text-center px-4 py-3 font-semibold text-gray-600 text-xs">
+                    ACTION
+                  </th>
                 </tr>
               </thead>
+
               <tbody>
                 {equipmentRows.map((row) => (
                   <tr
@@ -160,24 +228,39 @@ export function EquipmentAvailability({ userRole, currentUserEmail, onSuccessRed
                       row.code === 'AGT567' ? 'bg-utm-gold/5' : 'hover:bg-gray-50/50'
                     }`}
                   >
-                    <td className="px-4 py-3 text-center text-gray-400 text-xs">{row.no}</td>
-                    <td className="px-4 py-3 font-mono font-bold text-gray-900 text-xs">{row.code}</td>
-                    <td className="px-4 py-3 text-gray-600 text-xs">{row.lastDateUsed}</td>
-                    <td className="px-4 py-3 text-gray-600 text-xs">{row.labLocation}</td>
+                    <td className="px-4 py-3 text-center text-gray-400 text-xs">
+                      {row.no}
+                    </td>
+                    <td className="px-4 py-3 font-mono font-bold text-gray-900 text-xs">
+                      {row.code}
+                    </td>
+                    <td className="px-4 py-3 text-gray-600 text-xs">
+                      {row.lastDateUsed}
+                    </td>
+                    <td className="px-4 py-3 text-gray-600 text-xs">
+                      {row.labLocation}
+                    </td>
                     <td className="px-4 py-3 text-center">
                       <span
-                        className={`inline-flex items-center gap-1.5 text-[10px] font-bold px-2.5 py-1 rounded-full border ${statusBadge[row.status] ?? 'bg-gray-50 text-gray-600 border-gray-200'}`}
+                        className={`inline-flex items-center gap-1.5 text-[10px] font-bold px-2.5 py-1 rounded-full border ${
+                          statusBadge[row.status] ?? 'bg-gray-50 text-gray-600 border-gray-200'
+                        }`}
                       >
-                        <span className={`w-1.5 h-1.5 rounded-full ${statusDot[row.status] ?? 'bg-gray-400'}`} />
-                        {row.status === 'PENDING PICKUP' 
-                          ? 'PENDING APPROVAL' 
-                          : (row.status === 'BROKEN' || row.status === 'CALIBRATING') 
-                            ? 'NOT AVAILABLE' 
-                            : row.status
-                        }
+                        <span
+                          className={`w-1.5 h-1.5 rounded-full ${
+                            statusDot[row.status] ?? 'bg-gray-400'
+                          }`}
+                        />
+                        {row.status === 'PENDING PICKUP'
+                          ? 'PENDING APPROVAL'
+                          : row.status === 'BROKEN' || row.status === 'CALIBRATING'
+                            ? 'NOT AVAILABLE'
+                            : row.status}
                       </span>
                     </td>
-                    <td className="px-4 py-3 text-gray-600 text-xs font-medium">{row.verificationBy}</td>
+                    <td className="px-4 py-3 text-gray-600 text-xs font-medium">
+                      {row.verificationBy}
+                    </td>
                     <td className="px-4 py-3 text-center">
                       {isStudent && row.status === 'AVAILABLE' ? (
                         <button
@@ -186,8 +269,8 @@ export function EquipmentAvailability({ userRole, currentUserEmail, onSuccessRed
                         >
                           Borrow
                         </button>
-                      ) : isStudent && (row.status === 'BROKEN' || row.status === 'CALIBRATING') ? (
-                        /* SURGICAL ADDITION: Replaces default dash with safe blocked notification layout */
+                      ) : isStudent &&
+                        (row.status === 'BROKEN' || row.status === 'CALIBRATING') ? (
                         <span className="inline-flex items-center gap-1 px-2.5 py-1 text-[10px] font-bold text-red-700 bg-red-50 border border-red-200 rounded-md select-none">
                           <Wrench className="w-3 h-3" />
                           Maintenance
@@ -203,7 +286,6 @@ export function EquipmentAvailability({ userRole, currentUserEmail, onSuccessRed
           </div>
         </div>
 
-        {/* TinkerIoT Simulator */}
         <div className="w-full lg:w-72 flex-shrink-0">
           <div className="sticky top-20">
             <TinkerIoTSimulator
@@ -215,19 +297,21 @@ export function EquipmentAvailability({ userRole, currentUserEmail, onSuccessRed
         </div>
       </div>
 
-      {/* ================= STAFF ONLY ADAPTIVE SPREADSHEETS LAYER ================= */}
       {!isStudent && (
         <div className="space-y-6 pt-4">
-          
-          {/* Stage 2 Spreadsheet: Processed Applications History Log */}
           <div className="bg-white rounded-xl border border-gray-200 overflow-hidden shadow-xs">
             <div className="px-5 py-4 border-b border-gray-100 bg-gray-50/50 flex items-center gap-2.5">
               <History className="w-4 h-4 text-amber-600" />
               <div>
-                <h3 className="font-bold text-gray-900 text-sm">Processed Applications History Log (Active Borrows)</h3>
-                <p className="text-[10px] text-gray-500">Equipment currently out in field context layout — Haven't been returned</p>
+                <h3 className="font-bold text-gray-900 text-sm">
+                  Processed Applications History Log (Active Borrows)
+                </h3>
+                <p className="text-[10px] text-gray-500">
+                  Equipment currently out in field context layout — Haven&apos;t been returned
+                </p>
               </div>
             </div>
+
             <div className="overflow-x-auto">
               <table className="w-full text-left border-collapse text-xs">
                 <thead>
@@ -238,6 +322,7 @@ export function EquipmentAvailability({ userRole, currentUserEmail, onSuccessRed
                     <th className="p-4">Live Status Tracking</th>
                   </tr>
                 </thead>
+
                 <tbody className="divide-y divide-gray-100">
                   {processedApplicationsLog.length === 0 ? (
                     <tr>
@@ -248,14 +333,24 @@ export function EquipmentAvailability({ userRole, currentUserEmail, onSuccessRed
                   ) : (
                     processedApplicationsLog.map((app: Application) => (
                       <tr key={app.id} className="hover:bg-gray-50/40">
-                        <td className="p-4 font-mono font-bold text-utm-maroon text-sm">{app.equipmentCode}</td>
+                        <td className="p-4 font-mono font-bold text-utm-maroon text-sm">
+                          {app.equipmentCode}
+                        </td>
                         <td className="p-4">
-                          <div className="font-bold text-gray-900 uppercase">{app.formData.fullName}</div>
-                          <div className="text-gray-400 text-[10px] font-mono">{app.formData.emailAddress}</div>
+                          <div className="font-bold text-gray-900 uppercase">
+                            {app.formData.fullName}
+                          </div>
+                          <div className="text-gray-400 text-[10px] font-mono">
+                            {app.formData.emailAddress}
+                          </div>
                         </td>
                         <td className="p-4 text-gray-600">
-                          <div>Borrowed: <b>{app.formData.dateBorrow}</b></div>
-                          <div className="text-[10px] text-gray-400">Duration Limit: {app.formData.duration}</div>
+                          <div>
+                            Borrowed: <b>{app.formData.dateBorrow}</b>
+                          </div>
+                          <div className="text-[10px] text-gray-400">
+                            Duration Limit: {app.formData.duration}
+                          </div>
                         </td>
                         <td className="p-4">
                           <span className="inline-flex items-center gap-1 font-bold text-[10px] px-2 py-0.5 rounded bg-amber-50 text-amber-700 border border-amber-200 uppercase">
@@ -270,15 +365,19 @@ export function EquipmentAvailability({ userRole, currentUserEmail, onSuccessRed
             </div>
           </div>
 
-          {/* Stage 3 Spreadsheet: All-Time Transaction Historical Ledger */}
           <div className="bg-white rounded-xl border border-gray-200 overflow-hidden shadow-xs">
             <div className="px-5 py-4 border-b border-gray-100 bg-gray-50/50 flex items-center gap-2.5">
               <FileSpreadsheet className="w-4 h-4 text-emerald-600" />
               <div>
-                <h3 className="font-bold text-gray-900 text-sm">All-Time Transaction Historical Ledger</h3>
-                <p className="text-[10px] text-gray-500">Immutable structural system record trail logs — Cannot be deleted</p>
+                <h3 className="font-bold text-gray-900 text-sm">
+                  All-Time Transaction Historical Ledger
+                </h3>
+                <p className="text-[10px] text-gray-500">
+                  Immutable structural system record trail logs — Cannot be deleted
+                </p>
               </div>
             </div>
+
             <div className="overflow-x-auto">
               <table className="w-full text-left border-collapse text-xs">
                 <thead>
@@ -290,6 +389,7 @@ export function EquipmentAvailability({ userRole, currentUserEmail, onSuccessRed
                     <th className="p-4 text-center">Attachment</th>
                   </tr>
                 </thead>
+
                 <tbody className="divide-y divide-gray-100">
                   {historicalLedger.length === 0 ? (
                     <tr>
@@ -300,14 +400,22 @@ export function EquipmentAvailability({ userRole, currentUserEmail, onSuccessRed
                   ) : (
                     historicalLedger.map((app: Application) => (
                       <tr key={app.id} className="hover:bg-gray-50/40">
-                        <td className="p-4 font-mono font-bold text-gray-900">{app.equipmentCode}</td>
+                        <td className="p-4 font-mono font-bold text-gray-900">
+                          {app.equipmentCode}
+                        </td>
                         <td className="p-4">
-                          <div className="font-semibold text-gray-800 uppercase">{app.formData.fullName}</div>
-                          <div className="text-[10px] text-gray-400 font-mono">{app.formData.emailAddress}</div>
+                          <div className="font-semibold text-gray-800 uppercase">
+                            {app.formData.fullName}
+                          </div>
+                          <div className="text-[10px] text-gray-400 font-mono">
+                            {app.formData.emailAddress}
+                          </div>
                         </td>
                         <td className="p-4 text-gray-500 text-[11px]">
                           <div>Issued: {app.formData.dateBorrow}</div>
-                          <div className="text-emerald-600 font-medium">Returned: {app.returnDetails?.dateReturned || 'Completed'}</div>
+                          <div className="text-emerald-600 font-medium">
+                            Returned: {app.returnDetails?.dateReturned || 'Completed'}
+                          </div>
                         </td>
                         <td className="p-4 font-medium text-gray-700 uppercase">
                           {app.returnDetails?.overseeingStaff || 'SYSTEM AUTO'}
@@ -316,7 +424,11 @@ export function EquipmentAvailability({ userRole, currentUserEmail, onSuccessRed
                           {app.returnDetails?.equipmentImage ? (
                             <button
                               type="button"
-                              onClick={() => setActivePreviewImage(app.returnDetails?.equipmentImage || null)}
+                              onClick={() =>
+                                setActivePreviewImage(
+                                  app.returnDetails?.equipmentImage || null
+                                )
+                              }
                               className="inline-flex items-center gap-1 px-2 py-1 text-[10px] bg-gray-100 hover:bg-gray-200 font-bold rounded text-gray-700 cursor-pointer transition-colors mx-auto"
                             >
                               <Eye className="w-3 h-3" /> View Proof
@@ -332,16 +444,24 @@ export function EquipmentAvailability({ userRole, currentUserEmail, onSuccessRed
               </table>
             </div>
           </div>
-
         </div>
       )}
 
-      {/* Sandboxed Safe Image Preview Modal */}
       {activePreviewImage && (
-        <div className="fixed inset-0 z-50 bg-black/70 backdrop-blur-xs flex items-center justify-center p-4" onClick={() => setActivePreviewImage(null)}>
-          <div className="relative max-w-lg w-full bg-white rounded-lg p-3 shadow-xl" onClick={(e) => e.stopPropagation()}>
-            <img src={activePreviewImage} alt="Verification snapshot proof" className="w-full h-auto rounded object-contain max-h-[70vh]" />
-            <button 
+        <div
+          className="fixed inset-0 z-50 bg-black/70 backdrop-blur-xs flex items-center justify-center p-4"
+          onClick={() => setActivePreviewImage(null)}
+        >
+          <div
+            className="relative max-w-lg w-full bg-white rounded-lg p-3 shadow-xl"
+            onClick={(e) => e.stopPropagation()}
+          >
+            <img
+              src={activePreviewImage}
+              alt="Verification snapshot proof"
+              className="w-full h-auto rounded object-contain max-h-[70vh]"
+            />
+            <button
               onClick={() => setActivePreviewImage(null)}
               className="absolute top-2 right-2 bg-black text-white rounded-full w-6 h-6 flex items-center justify-center text-xs font-bold cursor-pointer"
             >
@@ -350,7 +470,6 @@ export function EquipmentAvailability({ userRole, currentUserEmail, onSuccessRed
           </div>
         </div>
       )}
-
     </div>
   );
 }

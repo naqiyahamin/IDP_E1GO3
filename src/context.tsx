@@ -1,9 +1,23 @@
-import { createContext, useContext, useState, useCallback, useEffect, useMemo, type ReactNode } from 'react';
+import {
+  createContext,
+  useContext,
+  useState,
+  useCallback,
+  useEffect,
+  useMemo,
+  type ReactNode,
+} from 'react';
 import { supabase } from './lib/supabase';
 import { type BorrowFormData } from './components/BorrowFormModal';
 import { updateUserPasswordInRegistry } from './auth';
 
-export type EquipmentStatus = 'AVAILABLE' | 'PENDING PICKUP' | 'BORROWED' | 'RETURN_PENDING' | 'BROKEN' | 'CALIBRATING';
+export type EquipmentStatus =
+  | 'AVAILABLE'
+  | 'PENDING PICKUP'
+  | 'BORROWED'
+  | 'RETURN_PENDING'
+  | 'BROKEN'
+  | 'CALIBRATING';
 
 export type AppStatus = 'PENDING' | 'APPROVED' | 'REJECTED' | 'RETURNED' | 'BANNED';
 
@@ -71,7 +85,11 @@ interface AppState {
   historicalLedger: Application[];
   loading: boolean;
   updateEquipmentStatus: (code: string, newStatus: EquipmentStatus) => void;
-  submitApplication: (formData: BorrowFormData, equipmentCode: string, photoAttachment?: string) => Promise<boolean>;
+  submitApplication: (
+    formData: BorrowFormData,
+    equipmentCode: string,
+    photoAttachment?: string
+  ) => Promise<boolean>;
   approveApplication: (appId: string) => Promise<void>;
   rejectApplication: (appId: string) => Promise<void>;
   banApplication: (appId: string) => Promise<void>;
@@ -92,6 +110,11 @@ function getEquipmentName(code: string): string {
   return 'Digital Oscilloscope';
 }
 
+function getEquipmentTypeKey(code: string): string {
+  const match = code.match(/^[A-Za-z]+/);
+  return match ? match[0].toUpperCase() : code.slice(0, 3).toUpperCase();
+}
+
 function dbRowToApplication(row: Record<string, unknown>): Application {
   return {
     id: row.id as string,
@@ -108,13 +131,14 @@ function dbRowToApplication(row: Record<string, unknown>): Application {
     processedAt: (row.processed_at as string) || undefined,
     returnSubmittedAt: (row.return_submitted_at as string) || undefined,
     returnVerifiedAt: (row.return_verified_at as string) || undefined,
-    returnDetails: (row.return_date_returned || row.return_overseeing_staff || row.return_equipment_image)
-      ? {
-          dateReturned: (row.return_date_returned as string) || '',
-          overseeingStaff: (row.return_overseeing_staff as string) || '',
-          equipmentImage: (row.return_equipment_image as string) || '',
-        }
-      : undefined,
+    returnDetails:
+      row.return_date_returned || row.return_overseeing_staff || row.return_equipment_image
+        ? {
+            dateReturned: (row.return_date_returned as string) || '',
+            overseeingStaff: (row.return_overseeing_staff as string) || '',
+            equipmentImage: (row.return_equipment_image as string) || '',
+          }
+        : undefined,
     formData: {
       fullName: row.student_name as string,
       emailAddress: row.student_email as string,
@@ -181,8 +205,15 @@ export function AppProvider({ children }: { children: ReactNode }) {
     if (appsRes.data) setApplicationQueue(appsRes.data.map(dbRowToApplication));
     if (equipRes.data) setEquipmentRows(equipRes.data.map(dbRowToEquipment));
     if (invRes.data) setComponentInventory(invRes.data.map(dbRowToInventory));
-    if (blackRes.data) setBlacklistedEmails(blackRes.data.map((r: Record<string, unknown>) => r.email as string));
+    if (blackRes.data) {
+      setBlacklistedEmails(
+        blackRes.data.map((r: Record<string, unknown>) =>
+          String(r.email || '').toLowerCase().trim()
+        )
+      );
+    }
     if (histRes.data) setTransactionHistory(histRes.data.map(dbRowToHistory));
+
     setLoading(false);
   }, []);
 
@@ -190,270 +221,358 @@ export function AppProvider({ children }: { children: ReactNode }) {
     fetchAllData();
   }, [fetchAllData]);
 
-  // Real-time subscription for applications table
   useEffect(() => {
     const channel = supabase
-      .channel('applications-realtime')
-      .on(
-        'postgres_changes',
-        { event: '*', schema: 'public', table: 'applications' },
-        () => {
-          supabase
-            .from('applications')
-            .select('*')
-            .order('submitted_at', { ascending: true })
-            .then((res) => {
-              if (res.data) setApplicationQueue(res.data.map(dbRowToApplication));
-            });
-        }
-      )
-      .on(
-        'postgres_changes',
-        { event: '*', schema: 'public', table: 'equipment_rows' },
-        () => {
-          supabase
-            .from('equipment_rows')
-            .select('*')
-            .order('no', { ascending: true })
-            .then((res) => {
-              if (res.data) setEquipmentRows(res.data.map(dbRowToEquipment));
-            });
-        }
-      )
-      .on(
-        'postgres_changes',
-        { event: '*', schema: 'public', table: 'component_inventory' },
-        () => {
-          supabase
-            .from('component_inventory')
-            .select('*')
-            .order('name', { ascending: true })
-            .then((res) => {
-              if (res.data) setComponentInventory(res.data.map(dbRowToInventory));
-            });
-        }
-      )
-      .on(
-        'postgres_changes',
-        { event: '*', schema: 'public', table: 'blacklisted_emails' },
-        () => {
-          supabase
-            .from('blacklisted_emails')
-            .select('email')
-            .then((res) => {
-              if (res.data) setBlacklistedEmails(res.data.map((r: Record<string, unknown>) => r.email as string));
-            });
-        }
-      )
-      .on(
-        'postgres_changes',
-        { event: '*', schema: 'public', table: 'transaction_history' },
-        () => {
-          supabase
-            .from('transaction_history')
-            .select('*')
-            .order('borrow_timestamp', { ascending: true })
-            .then((res) => {
-              if (res.data) setTransactionHistory(res.data.map(dbRowToHistory));
-            });
-        }
-      )
+      .channel('lab-inventory-realtime')
+      .on('postgres_changes', { event: '*', schema: 'public', table: 'applications' }, fetchAllData)
+      .on('postgres_changes', { event: '*', schema: 'public', table: 'equipment_rows' }, fetchAllData)
+      .on('postgres_changes', { event: '*', schema: 'public', table: 'component_inventory' }, fetchAllData)
+      .on('postgres_changes', { event: '*', schema: 'public', table: 'blacklisted_emails' }, fetchAllData)
+      .on('postgres_changes', { event: '*', schema: 'public', table: 'transaction_history' }, fetchAllData)
       .subscribe();
 
     return () => {
       supabase.removeChannel(channel);
     };
-  }, []);
+  }, [fetchAllData]);
 
   const updateEquipmentStatus = useCallback((code: string, newStatus: EquipmentStatus) => {
     supabase.from('equipment_rows').update({ status: newStatus }).eq('code', code).then();
   }, []);
 
-  const toggleBlacklistUser = useCallback((email: string) => {
-    const targetEmail = email.toLowerCase().trim();
-    if (blacklistedEmails.includes(targetEmail)) {
-      supabase.from('blacklisted_emails').delete().eq('email', targetEmail).then();
-    } else {
-      supabase.from('blacklisted_emails').insert({ email: targetEmail }).then();
-    }
-  }, [blacklistedEmails]);
+  const toggleBlacklistUser = useCallback(
+    (email: string) => {
+      const targetEmail = email.toLowerCase().trim();
 
-  const submitApplication = useCallback(async (formData: BorrowFormData, equipmentCode: string, photoAttachment?: string): Promise<boolean> => {
-    const studentEmail = formData.emailAddress.toLowerCase().trim();
-    const isBlacklisted = blacklistedEmails.includes(studentEmail);
+      if (blacklistedEmails.includes(targetEmail)) {
+        supabase.from('blacklisted_emails').delete().eq('email', targetEmail).then();
+      } else {
+        supabase.from('blacklisted_emails').upsert({ email: targetEmail }).then();
+      }
+    },
+    [blacklistedEmails]
+  );
 
-    const row: Record<string, unknown> = {
-      student_email: studentEmail,
-      student_name: formData.fullName,
-      student_phone: formData.phoneNumber,
-      student_year_course: formData.yearCourse,
-      equipment_code: equipmentCode,
-      equipment_name: getEquipmentName(equipmentCode),
-      borrow_date: formData.dateBorrow,
-      duration: formData.duration,
-      return_target: formData.returnTime,
-      photo_attachment: photoAttachment || null,
-      status: 'PENDING',
-      stage: 'PENDING',
-      is_blacklisted: isBlacklisted,
-      is_approved: false,
-      is_returned: false,
-      is_return_verified: false,
-    };
+  const submitApplication = useCallback(
+    async (
+      formData: BorrowFormData,
+      equipmentCode: string,
+      photoAttachment?: string
+    ): Promise<boolean> => {
+      const studentEmail = formData.emailAddress.toLowerCase().trim();
 
-    const { error } = await supabase.from('applications').insert(row);
-    return !error;
-  }, [blacklistedEmails]);
+      if (blacklistedEmails.includes(studentEmail)) {
+        alert('This student account has been banned from borrowing equipment.');
+        return false;
+      }
 
-  const approveApplication = useCallback(async (appId: string) => {
-    const { data: target } = await supabase.from('applications').select('*').eq('id', appId).single();
-    if (!target) return;
+      const row: Record<string, unknown> = {
+        student_email: studentEmail,
+        student_name: formData.fullName,
+        student_phone: formData.phoneNumber,
+        student_year_course: formData.yearCourse,
+        equipment_code: equipmentCode,
+        equipment_name: getEquipmentName(equipmentCode),
+        borrow_date: formData.dateBorrow,
+        duration: formData.duration,
+        return_target: formData.returnTime,
+        photo_attachment: photoAttachment || null,
+        status: 'PENDING',
+        stage: 'PENDING',
+        is_blacklisted: false,
+        is_approved: false,
+        is_returned: false,
+        is_return_verified: false,
+      };
 
-    const equipmentCode = target.equipment_code as string;
+      const { error } = await supabase.from('applications').insert(row);
 
-    const { data: activeBorrows } = await supabase
-      .from('applications')
-      .select('id')
-      .eq('equipment_code', equipmentCode)
-      .eq('stage', 'ACTIVE_BORROW');
+      if (error) {
+        console.error('Submit application failed:', error);
+        return false;
+      }
 
-    if (activeBorrows && activeBorrows.length > 0) {
-      await supabase.from('applications').update({ status: 'REJECTED', stage: 'PENDING' }).eq('id', appId);
-      return;
-    }
+      await fetchAllData();
+      return true;
+    },
+    [blacklistedEmails, fetchAllData]
+  );
 
-    const equipmentName = getEquipmentName(equipmentCode);
-    const { data: invItem } = await supabase.from('component_inventory').select('*').eq('name', equipmentName).single();
-    if (invItem && (invItem.units_on_shelf as number) <= 0) {
-      await supabase.from('applications').update({ status: 'REJECTED', stage: 'PENDING' }).eq('id', appId);
-      return;
-    }
+  const approveApplication = useCallback(
+    async (appId: string) => {
+      const now = new Date().toISOString();
 
-    await Promise.all([
-      supabase.from('applications').update({
+      const { data: target, error: targetError } = await supabase
+        .from('applications')
+        .select('*')
+        .eq('id', appId)
+        .single();
+
+      if (targetError || !target) {
+        console.error('Application not found:', targetError);
+        return;
+      }
+
+      const requestedCode = target.equipment_code as string;
+      const requestedTypeKey = getEquipmentTypeKey(requestedCode);
+      const equipmentName = getEquipmentName(requestedCode);
+
+      const { data: equipmentList, error: equipmentError } = await supabase
+        .from('equipment_rows')
+        .select('*')
+        .order('no', { ascending: true });
+
+      if (equipmentError || !equipmentList) {
+        console.error('Unable to check equipment availability:', equipmentError);
+        return;
+      }
+
+      const requestedEquipment = equipmentList.find(
+        (item: Record<string, unknown>) => item.code === requestedCode
+      );
+
+      let finalEquipmentCode = requestedCode;
+
+      if (!requestedEquipment || requestedEquipment.status !== 'AVAILABLE') {
+        const alternativeEquipment = equipmentList.find((item: Record<string, unknown>) => {
+          const code = item.code as string;
+          const status = item.status as EquipmentStatus;
+
+          return (
+            code !== requestedCode &&
+            getEquipmentTypeKey(code) === requestedTypeKey &&
+            status === 'AVAILABLE'
+          );
+        });
+
+        if (!alternativeEquipment) {
+          await supabase
+            .from('applications')
+            .update({
+              status: 'PENDING',
+              stage: 'PENDING',
+            })
+            .eq('id', appId);
+
+          alert('No alternative same-type equipment is available. Application remains pending.');
+          return;
+        }
+
+        finalEquipmentCode = alternativeEquipment.code as string;
+      }
+
+      const { data: activeBorrowSameCode } = await supabase
+        .from('applications')
+        .select('id')
+        .neq('id', appId)
+        .eq('equipment_code', finalEquipmentCode)
+        .eq('stage', 'ACTIVE_BORROW');
+
+      if (activeBorrowSameCode && activeBorrowSameCode.length > 0) {
+        alert('This equipment has just been borrowed. Please approve again to auto-redirect.');
+        return;
+      }
+
+      const { data: invItem } = await supabase
+        .from('component_inventory')
+        .select('*')
+        .eq('name', equipmentName)
+        .single();
+
+      if (invItem && (invItem.units_on_shelf as number) <= 0) {
+        alert('No stock available for this equipment type.');
+        return;
+      }
+
+      const unitsOut = (invItem?.units_out as number | undefined) ?? 0;
+      const unitsOnShelf = (invItem?.units_on_shelf as number | undefined) ?? 0;
+
+      const updateApplicationData: Record<string, unknown> = {
+        equipment_code: finalEquipmentCode,
+        equipment_name: getEquipmentName(finalEquipmentCode),
         status: 'APPROVED',
         stage: 'ACTIVE_BORROW',
         is_approved: true,
-        approved_at: new Date().toISOString(),
-        processed_at: new Date().toISOString(),
-      }).eq('id', appId),
-      supabase.from('equipment_rows').update({ status: 'BORROWED' }).eq('code', equipmentCode),
-      supabase.from('component_inventory').update({
-        units_out: (invItem?.units_out as number ?? 0) + 1,
-        units_on_shelf: Math.max(0, (invItem?.units_on_shelf as number ?? 0) - 1),
-      }).eq('name', equipmentName),
-    ]);
-  }, []);
+        approved_at: now,
+        processed_at: now,
+      };
 
-  const rejectApplication = useCallback(async (appId: string) => {
-    const { data: target } = await supabase.from('applications').select('equipment_code, stage').eq('id', appId).single();
-    if (!target) return;
+      const { error: approveError } = await supabase
+        .from('applications')
+        .update(updateApplicationData)
+        .eq('id', appId)
+        .eq('stage', 'PENDING');
 
-    const equipmentCode = target.equipment_code as string;
+      if (approveError) {
+        console.error('Approve application failed:', approveError);
+        return;
+      }
 
-    // Check if other active apps use this equipment code
-    const { data: otherActive } = await supabase
-      .from('applications')
-      .select('id')
-      .neq('id', appId)
-      .eq('equipment_code', equipmentCode)
-      .in('stage', ['PENDING', 'ACTIVE_BORROW']);
+      await Promise.all([
+        supabase.from('equipment_rows').update({ status: 'BORROWED' }).eq('code', finalEquipmentCode),
+        supabase
+          .from('component_inventory')
+          .update({
+            units_out: unitsOut + 1,
+            units_on_shelf: Math.max(0, unitsOnShelf - 1),
+          })
+          .eq('name', equipmentName),
+      ]);
 
-    const shouldRelease = !otherActive || otherActive.length === 0;
+      await fetchAllData();
+    },
+    [fetchAllData]
+  );
 
-    await supabase.from('applications').delete().eq('id', appId);
+  const rejectApplication = useCallback(
+    async (appId: string) => {
+      const { error } = await supabase
+        .from('applications')
+        .update({
+          status: 'REJECTED',
+          stage: 'HISTORICAL',
+          processed_at: new Date().toISOString(),
+        })
+        .eq('id', appId);
 
-    if (shouldRelease) {
-      await supabase.from('equipment_rows').update({ status: 'AVAILABLE' }).eq('code', equipmentCode);
-    }
-  }, []);
+      if (error) {
+        console.error('Reject application failed:', error);
+        return;
+      }
 
-  const banApplication = useCallback(async (appId: string) => {
-    const { data: target } = await supabase.from('applications').select('student_email, equipment_code').eq('id', appId).single();
-    if (!target) return;
+      await fetchAllData();
+    },
+    [fetchAllData]
+  );
 
-    const studentEmail = (target.student_email as string).toLowerCase().trim();
-    const equipmentCode = target.equipment_code as string;
+  const banApplication = useCallback(
+    async (appId: string) => {
+      const { data: target, error: targetError } = await supabase
+        .from('applications')
+        .select('student_email')
+        .eq('id', appId)
+        .single();
 
-    await Promise.all([
-      supabase.from('applications').update({
-        status: 'BANNED',
-        stage: 'HISTORICAL',
-        is_blacklisted: true,
-        processed_at: new Date().toISOString(),
-      }).eq('id', appId),
-      supabase.from('blacklisted_emails').insert({ email: studentEmail }).then(() => {
-        // ignore conflict if already exists
-      }),
-    ]);
+      if (targetError || !target) {
+        console.error('Ban application failed:', targetError);
+        return;
+      }
 
-    // Check if other active apps use this equipment code
-    const { data: otherActive } = await supabase
-      .from('applications')
-      .select('id')
-      .neq('id', appId)
-      .eq('equipment_code', equipmentCode)
-      .in('stage', ['PENDING', 'ACTIVE_BORROW']);
+      const studentEmail = String(target.student_email || '').toLowerCase().trim();
 
-    if (!otherActive || otherActive.length === 0) {
-      await supabase.from('equipment_rows').update({ status: 'AVAILABLE' }).eq('code', equipmentCode);
-    }
-  }, []);
+      await Promise.all([
+        supabase
+          .from('applications')
+          .update({
+            status: 'BANNED',
+            stage: 'BANNED',
+            is_blacklisted: true,
+            processed_at: new Date().toISOString(),
+          })
+          .eq('id', appId),
+        supabase.from('blacklisted_emails').upsert({ email: studentEmail }),
+      ]);
 
-  const submitReturnRequest = useCallback(async (appId: string, returnData: ReturnDetailsData) => {
-    await Promise.all([
-      supabase.from('applications').update({
-        is_returned: true,
-        stage: 'RETURN_PENDING',
-        return_date_returned: returnData.dateReturned,
-        return_overseeing_staff: returnData.overseeingStaff,
-        return_equipment_image: returnData.equipmentImage,
-        return_submitted_at: new Date().toISOString(),
-      }).eq('id', appId),
-      supabase.from('equipment_rows').update({ status: 'RETURN_PENDING' }).eq('code',
-        (await supabase.from('applications').select('equipment_code').eq('id', appId).single()).data?.equipment_code ?? ''
-      ),
-    ]);
-  }, []);
+      await fetchAllData();
+    },
+    [fetchAllData]
+  );
 
-  const approveReturnRequest = useCallback(async (appId: string) => {
-    const { data: target } = await supabase.from('applications').select('*').eq('id', appId).single();
-    if (!target) return;
+  const submitReturnRequest = useCallback(
+    async (appId: string, returnData: ReturnDetailsData) => {
+      const { data: target } = await supabase
+        .from('applications')
+        .select('equipment_code')
+        .eq('id', appId)
+        .single();
 
-    const equipmentCode = target.equipment_code as string;
-    const equipmentName = getEquipmentName(equipmentCode);
+      if (!target) return;
 
-    const { data: invItem } = await supabase.from('component_inventory').select('*').eq('name', equipmentName).single();
+      const equipmentCode = target.equipment_code as string;
 
-    await Promise.all([
-      supabase.from('applications').update({
-        status: 'RETURNED',
-        stage: 'HISTORICAL',
-        is_return_verified: true,
-        processed_at: new Date().toISOString(),
-        return_verified_at: new Date().toISOString(),
-      }).eq('id', appId),
-      supabase.from('equipment_rows').update({
-        status: 'AVAILABLE',
-        last_date_used: target.return_date_returned || new Date().toISOString().split('T')[0],
-      }).eq('code', equipmentCode),
-      supabase.from('component_inventory').update({
-        units_out: Math.max(0, (invItem?.units_out as number ?? 1) - 1),
-        units_on_shelf: (invItem?.units_on_shelf as number ?? 0) + 1,
-      }).eq('name', equipmentName),
-      supabase.from('transaction_history').insert({
-        equipment_code: equipmentCode,
-        component_type: equipmentName,
-        student_name: target.student_name,
-        student_email: target.student_email,
-        borrow_date: target.borrow_date,
-        return_due_time: target.return_target,
-        borrow_timestamp: target.approved_at || new Date().toISOString(),
-        status: 'RETURNED',
-        returned_date: target.return_date_returned || new Date().toISOString().split('T')[0],
-      }),
-    ]);
-  }, []);
+      await Promise.all([
+        supabase
+          .from('applications')
+          .update({
+            is_returned: true,
+            stage: 'RETURN_PENDING',
+            return_date_returned: returnData.dateReturned,
+            return_overseeing_staff: returnData.overseeingStaff,
+            return_equipment_image: returnData.equipmentImage,
+            return_submitted_at: new Date().toISOString(),
+          })
+          .eq('id', appId),
+        supabase.from('equipment_rows').update({ status: 'RETURN_PENDING' }).eq('code', equipmentCode),
+      ]);
+
+      await fetchAllData();
+    },
+    [fetchAllData]
+  );
+
+  const approveReturnRequest = useCallback(
+    async (appId: string) => {
+      const { data: target } = await supabase
+        .from('applications')
+        .select('*')
+        .eq('id', appId)
+        .single();
+
+      if (!target) return;
+
+      const equipmentCode = target.equipment_code as string;
+      const equipmentName = getEquipmentName(equipmentCode);
+
+      const { data: invItem } = await supabase
+        .from('component_inventory')
+        .select('*')
+        .eq('name', equipmentName)
+        .single();
+
+      await Promise.all([
+        supabase
+          .from('applications')
+          .update({
+            status: 'RETURNED',
+            stage: 'HISTORICAL',
+            is_return_verified: true,
+            processed_at: new Date().toISOString(),
+            return_verified_at: new Date().toISOString(),
+          })
+          .eq('id', appId),
+        supabase
+          .from('equipment_rows')
+          .update({
+            status: 'AVAILABLE',
+            last_date_used:
+              target.return_date_returned || new Date().toISOString().split('T')[0],
+          })
+          .eq('code', equipmentCode),
+        supabase
+          .from('component_inventory')
+          .update({
+            units_out: Math.max(0, ((invItem?.units_out as number | undefined) ?? 1) - 1),
+            units_on_shelf: ((invItem?.units_on_shelf as number | undefined) ?? 0) + 1,
+          })
+          .eq('name', equipmentName),
+        supabase.from('transaction_history').insert({
+          equipment_code: equipmentCode,
+          component_type: equipmentName,
+          student_name: target.student_name,
+          student_email: target.student_email,
+          borrow_date: target.borrow_date,
+          return_due_time: target.return_target,
+          borrow_timestamp: target.approved_at || new Date().toISOString(),
+          status: 'RETURNED',
+          returned_date:
+            target.return_date_returned || new Date().toISOString().split('T')[0],
+        }),
+      ]);
+
+      await fetchAllData();
+    },
+    [fetchAllData]
+  );
 
   const getLastSubmittedForm = useCallback(() => {
     if (applicationQueue.length === 0) return null;
@@ -464,18 +583,21 @@ export function AppProvider({ children }: { children: ReactNode }) {
     return updateUserPasswordInRegistry(email, newPassword);
   }, []);
 
-  const incomingVerificationQueue = useMemo(() =>
-    applicationQueue.filter((app) => app.stage === 'PENDING' || app.stage === 'RETURN_PENDING'),
+  const incomingVerificationQueue = useMemo(
+    () =>
+      applicationQueue.filter(
+        (app) => app.stage === 'PENDING' || app.stage === 'RETURN_PENDING'
+      ),
     [applicationQueue]
   );
 
-  const processedApplicationsLog = useMemo(() =>
-    applicationQueue.filter((app) => app.stage === 'ACTIVE_BORROW'),
+  const processedApplicationsLog = useMemo(
+    () => applicationQueue.filter((app) => app.stage === 'ACTIVE_BORROW'),
     [applicationQueue]
   );
 
-  const historicalLedger = useMemo(() =>
-    applicationQueue.filter((app) => app.stage === 'HISTORICAL'),
+  const historicalLedger = useMemo(
+    () => applicationQueue.filter((app) => app.stage === 'HISTORICAL' || app.stage === 'BANNED'),
     [applicationQueue]
   );
 
