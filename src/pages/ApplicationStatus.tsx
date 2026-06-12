@@ -1,7 +1,7 @@
 import { useState, useMemo, useEffect } from 'react';
 import { Clock, ShieldCheck, UserX, UserCheck, CheckCircle, FileText, Camera, UploadCloud, Ban, Undo2, Table, AlertTriangle, PackageCheck, Wrench, UserMinus, Phone, XCircle, CopyCheck, SendHorizontal } from 'lucide-react';
 import emailjs from '@emailjs/browser';
-import { useAppState, type Application } from '../context';
+import { useAppState } from '../context';
 import type { UserRole } from '../auth';
 
 interface ApplicationStatusProps {
@@ -51,89 +51,6 @@ export default function ApplicationStatus({ userRole, currentUserEmail = "" }: A
   // Force staff permissions for your testing account
   const isStaff = userRole === 'staff' || cleanUserEmail === 'naqiyah@graduate.utm.my';
 
-  // ==========================================
-  // STATIC DEMO BACKUPS (Used if context arrays are empty)
-  // ==========================================
-  const backupQueue: Application[] = [
-    {
-      id: "demo-app-1",
-      equipmentCode: "AGT570",
-      stage: "PENDING",
-      status: "PENDING",
-      isBlacklisted: false,
-      isApproved: false,
-      isReturned: false,
-      isReturnVerified: false,
-      submittedAt: "2026-06-12T09:30:00Z",
-      formData: {
-        fullName: "DIVYA A/P RAMAN",
-        emailAddress: "divya@graduate.utm.my",
-        phoneNumber: "+601123456789",
-        yearCourse: "1/SKEEH",
-        dateBorrow: "2026-06-12",
-        duration: "3 Hours",
-        returnTime: "15:00"
-      }
-    }
-  ];
-
-  const backupLog: Application[] = [
-    {
-      id: "demo-app-2",
-      equipmentCode: "AGT569",
-      stage: "ACTIVE_BORROW",
-      status: "APPROVED",
-      isBlacklisted: false,
-      isApproved: true,
-      isReturned: false,
-      isReturnVerified: false,
-      submittedAt: "2026-06-01T09:15:00Z",
-      approvedAt: "2026-06-01T09:45:00Z",
-      processedAt: "2026-06-01T09:45:00Z",
-      formData: {
-        fullName: "YONG QIAN SHUN",
-        emailAddress: "yongshun@graduate.utm.my",
-        phoneNumber: "+60177654321",
-        yearCourse: "3/SKEEH",
-        dateBorrow: "2026-06-01",
-        duration: "2 Days",
-        returnTime: "2026-06-03"
-      }
-    }
-  ];
-
-  const backupLedger: Application[] = [
-    {
-      id: "demo-app-3",
-      equipmentCode: "MXW210",
-      stage: "HISTORICAL",
-      status: "RETURNED",
-      isBlacklisted: false,
-      isApproved: true,
-      isReturned: true,
-      isReturnVerified: true,
-      submittedAt: "2026-05-20T08:00:00Z",
-      approvedAt: "2026-05-20T08:30:00Z",
-      processedAt: "2026-05-21T14:00:00Z",
-      returnSubmittedAt: "2026-05-21T13:45:00Z",
-      returnVerifiedAt: "2026-05-21T14:15:00Z",
-      formData: {
-        fullName: "TAN ZHE LAM",
-        emailAddress: "tanzhelam@graduate.utm.my",
-        phoneNumber: "+60198882233",
-        yearCourse: "3/SKELH",
-        dateBorrow: "2026-05-20",
-        duration: "1 Day",
-        returnTime: "2026-05-21"
-      },
-      returnDetails: {
-        dateReturned: "2026-05-21",
-        overseeingStaff: "INCIK RAZALI",
-        equipmentImage: ""
-      }
-    }
-  ];
-
   // ========================================================
   // AUTOMATED EMAILJS BACKGROUND AUTOMATION ENGINE
   // ========================================================
@@ -142,7 +59,7 @@ export default function ApplicationStatus({ userRole, currentUserEmail = "" }: A
 
     const dispatchAutomatedNotifications = async () => {
       const currentSystemDate = new Date('2026-06-12');
-      const targetLogSource = processedApplicationsLog.length > 0 ? processedApplicationsLog : backupLog;
+      const targetLogSource = processedApplicationsLog;
 
       for (const app of targetLogSource) {
         const isReturnSubmitted = app.isReturned && !!app.returnDetails;
@@ -175,21 +92,18 @@ export default function ApplicationStatus({ userRole, currentUserEmail = "" }: A
   // ROLE-BASED DATA FILTERING PIPELINE
   // ==========================================
   const incomingVerificationQueue = useMemo(() => {
-    const baseSource = (rawQueue && rawQueue.length > 0) ? rawQueue : backupQueue;
-    if (isStaff) return baseSource;
-    return baseSource.filter(app => app.formData.emailAddress.trim().toLowerCase() === cleanUserEmail);
+    if (isStaff) return rawQueue;
+    return rawQueue.filter(app => app.formData.emailAddress.trim().toLowerCase() === cleanUserEmail);
   }, [rawQueue, isStaff, cleanUserEmail]);
 
   const processedApplicationsLog = useMemo(() => {
-    const baseSource = (rawLog && rawLog.length > 0) ? rawLog : backupLog;
-    if (isStaff) return baseSource;
-    return baseSource.filter(app => app.formData.emailAddress.trim().toLowerCase() === cleanUserEmail);
+    if (isStaff) return rawLog;
+    return rawLog.filter(app => app.formData.emailAddress.trim().toLowerCase() === cleanUserEmail);
   }, [rawLog, isStaff, cleanUserEmail]);
 
   const historicalLedger = useMemo(() => {
-    const baseSource = (rawLedger && rawLedger.length > 0) ? rawLedger : backupLedger;
-    if (isStaff) return baseSource;
-    return baseSource.filter(app => app.formData.emailAddress.trim().toLowerCase() === cleanUserEmail);
+    if (isStaff) return rawLedger;
+    return rawLedger.filter(app => app.formData.emailAddress.trim().toLowerCase() === cleanUserEmail);
   }, [rawLedger, isStaff, cleanUserEmail]);
 
   // ==========================================
