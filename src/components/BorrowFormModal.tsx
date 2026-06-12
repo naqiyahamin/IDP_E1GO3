@@ -4,8 +4,8 @@ import { useAppState } from '../context'; // Import our app context hook
 
 interface BorrowFormProps {
   equipmentCode: string;
-  currentUserEmail: string; // Enforce logged-in email security anchor
-  onSubmit: (data: BorrowFormData, photoAttachment?: string) => void;
+  currentUserEmail: string;
+  onSubmit: (data: BorrowFormData, photoAttachment?: string) => boolean;
   onBack: () => void;
 }
 
@@ -94,6 +94,7 @@ export default function BorrowForm({ equipmentCode, currentUserEmail, onSubmit, 
 
   const [photoAttachment, setPhotoAttachment] = useState<string>('');
   const [touched, setTouched] = useState<Partial<Record<keyof BorrowFormData, boolean>>>({});
+  const [submitFeedback, setSubmitFeedback] = useState<'idle' | 'success' | 'error'>('idle');
 
   const errors = useMemo(() => {
     const e: Partial<Record<keyof BorrowFormData, string>> = {};
@@ -141,7 +142,11 @@ export default function BorrowForm({ equipmentCode, currentUserEmail, onSubmit, 
       emailAddress: true,
     });
     if (allValid) {
-      onSubmit(form, photoAttachment || undefined);
+      const success = onSubmit(form, photoAttachment || undefined);
+      setSubmitFeedback(success ? 'success' : 'error');
+      if (success) {
+        setTimeout(() => onBack(), 1500);
+      }
     }
   };
 
@@ -301,11 +306,21 @@ export default function BorrowForm({ equipmentCode, currentUserEmail, onSubmit, 
             </div>
           </div>
 
+          {submitFeedback === 'success' && (
+            <div className="flex items-center gap-2 px-3 py-2 bg-emerald-50 border border-emerald-200 rounded-lg text-emerald-700 text-xs font-semibold">
+              <Send className="w-3.5 h-3.5" /> Application submitted successfully!
+            </div>
+          )}
+          {submitFeedback === 'error' && (
+            <div className="flex items-center gap-2 px-3 py-2 bg-red-50 border border-red-200 rounded-lg text-red-700 text-xs font-semibold">
+              <X className="w-3.5 h-3.5" /> Failed to submit application. Please try again.
+            </div>
+          )}
           <button
             type="submit"
-            disabled={!allValid}
+            disabled={!allValid || submitFeedback === 'success'}
             className={`w-full flex items-center justify-center gap-2 font-semibold text-sm py-2.5 rounded-lg transition-colors cursor-pointer ${
-              allValid
+              allValid && submitFeedback !== 'success'
                 ? 'bg-utm-maroon text-white hover:bg-utm-maroon-dark shadow-sm'
                 : 'bg-gray-200 text-gray-400 cursor-not-allowed'
             }`}

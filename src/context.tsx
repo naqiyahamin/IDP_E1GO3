@@ -1,6 +1,7 @@
 import { createContext, useContext, useState, useCallback, useEffect, useMemo, type ReactNode } from 'react';
 
-import { type BorrowFormData } from '../components/BorrowFormModal';
+import { type BorrowFormData } from './components/BorrowFormModal';
+import { updateUserPasswordInRegistry } from './auth';
 
 /*
  * ============================================================
@@ -9,7 +10,7 @@ import { type BorrowFormData } from '../components/BorrowFormModal';
  * ============================================================
  */
 
-export type EquipmentStatus = 'AVAILABLE' | 'PENDING PICKUP' | 'BORROWED' | 'RETURN_PENDING';
+export type EquipmentStatus = 'AVAILABLE' | 'PENDING PICKUP' | 'BORROWED' | 'RETURN_PENDING' | 'BROKEN' | 'CALIBRATING';
 
 export type AppStatus = 'PENDING' | 'APPROVED' | 'REJECTED' | 'RETURNED';
 
@@ -76,13 +77,14 @@ interface AppState {
   processedApplicationsLog: Application[];
   historicalLedger: Application[];
   updateEquipmentStatus: (code: string, newStatus: EquipmentStatus) => void;
-  submitApplication: (formData: BorrowFormData, equipmentCode: string, photoAttachment?: string) => void;
+  submitApplication: (formData: BorrowFormData, equipmentCode: string, photoAttachment?: string) => boolean;
   approveApplication: (appId: string) => void;
   rejectApplication: (appId: string) => void;
   submitReturnRequest: (appId: string, returnData: ReturnDetailsData) => void;
   approveReturnRequest: (appId: string) => void;
   toggleBlacklistUser: (email: string) => void;
   getLastSubmittedForm: () => BorrowFormData | null;
+  resetUserPassword: (email: string, newPassword: string) => boolean;
 }
 
 const AppContext = createContext<AppState | null>(null);
@@ -321,7 +323,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
     const studentEmail = formData.emailAddress.toLowerCase().trim();
     let isBlacklisted = blacklistedEmails.includes(studentEmail);
     const todayStr = new Date().toISOString().split('T')[0];
-    
+
     const hasOverdueItem = applicationQueue.some(
       (app) =>
         app.formData?.emailAddress?.toLowerCase().trim() === studentEmail &&
@@ -338,46 +340,81 @@ export function AppProvider({ children }: { children: ReactNode }) {
     }
 
     const app: Application = {
-      id: `APP-${Date.now()}-${Math.floor(1000 + Math.random() * 9000)}`,
+      id: crypto.randomUUID(),
       formData,
       equipmentCode,
       submittedAt: new Date().toISOString(),
       isBlacklisted,
       status: 'PENDING',
       photoAttachment,
-      stage: 'PENDING', 
+      stage: 'PENDING',
       isApproved: false,
       isReturned: false,
       isReturnVerified: false,
     };
 
-    setApplicationQueue((prev) => [...prev, app]);
-    setEquipmentRows((prevRows) =>
-      prevRows.map((row) => row.code === equipmentCode ? { ...row, status: 'PENDING PICKUP' } : row)
-    );
+    try {
+      setApplicationQueue((prev) => [...prev, app]);
+      return true;
+    } catch {
+      return false;
+    }
   }, [blacklistedEmails, applicationQueue]);
 
   const approveApplication = useCallback((appId: string) => {
     setApplicationQueue((prevQueue) => {
       const target = prevQueue.find((a) => a.id === appId);
-      if (target) {
-        setEquipmentRows((prevRows) =>
-          prevRows.map((row) => row.code === target.equipmentCode ? { ...row, status: 'BORROWED' } : row)
-        );
-        setComponentInventory((prevInv) =>
-          prevInv.map((item) =>
-            item.name === 'Digital Oscilloscope'
-              ? { ...item, unitsOut: item.unitsOut + 1, unitsOnShelf: item.unitsOnShelf - 1 }
-              : item
-          )
+      if (!target) return prevQueue;
+
+      // Stock availability check: count how many units of this equipment code are already borrowed
+      const equipmentCode = target.equipmentCode;
+      const activeBorrowsForCode = prevQueue.filter(
+        (a) => a.equipmentCode === equipmentCode && a.stage === 'ACTIVE_BORROW'
+      ).length;
+
+      // Each equipment code represents a single physical unit
+      // If already borrowed by someone else, deny approval
+      const isAlreadyBorrowed = activeBorrowsForCode > 0;
+
+      if (isAlreadyBorrowed) {
+        // Mark as rejected due to insufficient stock instead of approving
+        return prevQueue.map((a) =>
+          a.id === appId
+            ? { ...a, status: 'REJECTED' as const, stage: 'PENDING' as const }
+            : a
         );
       }
+
+      // Check component inventory for the matching equipment type
+      const equipmentName = equipmentCode.startsWith('AGT') ? 'Digital Oscilloscope'
+        : equipmentCode.startsWith('ARD') ? 'Arduino Uno'
+        : equipmentCode.startsWith('ESP') ? 'ESP32 Microcontroller'
+        : equipmentCode.startsWith('MXW') ? 'Regulated DC Power Supply'
+        : 'Digital Oscilloscope';
+
+      setComponentInventory((prevInv) => {
+        const item = prevInv.find((i) => i.name === equipmentName);
+        if (item && item.unitsOnShelf <= 0) {
+          // Insufficient stock — signal rejection
+          return prevInv;
+        }
+        return prevInv.map((i) =>
+          i.name === equipmentName
+            ? { ...i, unitsOut: i.unitsOut + 1, unitsOnShelf: Math.max(0, i.unitsOnShelf - 1) }
+            : i
+        );
+      });
+
+      setEquipmentRows((prevRows) =>
+        prevRows.map((row) => row.code === equipmentCode ? { ...row, status: 'BORROWED' as const } : row)
+      );
+
       return prevQueue.map((a) =>
         a.id === appId
           ? {
               ...a,
-              status: 'APPROVED',
-              stage: 'ACTIVE_BORROW', 
+              status: 'APPROVED' as const,
+              stage: 'ACTIVE_BORROW' as const,
               isApproved: true,
               approvedAt: new Date().toISOString(),
               processedAt: new Date().toISOString(),
@@ -391,11 +428,18 @@ export function AppProvider({ children }: { children: ReactNode }) {
     setApplicationQueue((prevQueue) => {
       const target = prevQueue.find((a) => a.id === appId);
       if (target) {
-        setEquipmentRows((prevRows) =>
-          prevRows.map((row) => row.code === target.equipmentCode ? { ...row, status: 'AVAILABLE' } : row)
+        // Only revert equipment status if no other pending/approved applications use this code
+        const otherActiveForCode = prevQueue.filter(
+          (a) => a.id !== appId && a.equipmentCode === target.equipmentCode &&
+            (a.stage === 'PENDING' || a.stage === 'ACTIVE_BORROW')
         );
+        if (otherActiveForCode.length === 0) {
+          setEquipmentRows((prevRows) =>
+            prevRows.map((row) => row.code === target.equipmentCode ? { ...row, status: 'AVAILABLE' as const } : row)
+          );
+        }
       }
-      return prevQueue.filter((a) => a.id !== appId); 
+      return prevQueue.filter((a) => a.id !== appId);
     });
   }, []);
 
@@ -424,19 +468,25 @@ export function AppProvider({ children }: { children: ReactNode }) {
   const approveReturnRequest = useCallback((appId: string) => {
     setApplicationQueue((prevQueue) => {
       const target = prevQueue.find((a) => a.id === appId);
-      
+
       if (target) {
         setEquipmentRows((prevRows) =>
           prevRows.map((row) =>
             row.code === target.equipmentCode
-              ? { ...row, status: 'AVAILABLE', lastDateUsed: target.returnDetails?.dateReturned || new Date().toISOString().split('T')[0] }
+              ? { ...row, status: 'AVAILABLE' as const, lastDateUsed: target.returnDetails?.dateReturned || new Date().toISOString().split('T')[0] }
               : row
           )
         );
 
+        const equipmentName = target.equipmentCode.startsWith('AGT') ? 'Digital Oscilloscope'
+          : target.equipmentCode.startsWith('ARD') ? 'Arduino Uno'
+          : target.equipmentCode.startsWith('ESP') ? 'ESP32 Microcontroller'
+          : target.equipmentCode.startsWith('MXW') ? 'Regulated DC Power Supply'
+          : 'Digital Oscilloscope';
+
         setComponentInventory((prevInv) =>
           prevInv.map((item) =>
-            item.name === 'Digital Oscilloscope'
+            item.name === equipmentName
               ? { ...item, unitsOut: Math.max(0, item.unitsOut - 1), unitsOnShelf: item.unitsOnShelf + 1 }
               : item
           )
@@ -446,7 +496,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
           ...prevHist,
           {
             equipmentCode: target.equipmentCode || 'UNKNOWN',
-            componentType: 'Digital Oscilloscope',
+            componentType: equipmentName,
             studentName: target.formData?.fullName || 'UNKNOWN STUDENT',
             studentEmail: target.formData?.emailAddress || 'unknown@utm.my',
             borrowDate: target.formData?.dateBorrow || new Date().toISOString().split('T')[0],
@@ -462,8 +512,8 @@ export function AppProvider({ children }: { children: ReactNode }) {
         a.id === appId
           ? {
               ...a,
-              status: 'RETURNED',
-              stage: 'HISTORICAL', 
+              status: 'RETURNED' as const,
+              stage: 'HISTORICAL' as const,
               isReturnVerified: true,
               processedAt: new Date().toISOString(),
               returnVerifiedAt: new Date().toISOString(),
@@ -477,6 +527,10 @@ export function AppProvider({ children }: { children: ReactNode }) {
     if (applicationQueue.length === 0) return null;
     return applicationQueue[applicationQueue.length - 1].formData;
   }, [applicationQueue]);
+
+  const resetUserPassword = useCallback((email: string, newPassword: string): boolean => {
+    return updateUserPasswordInRegistry(email, newPassword);
+  }, []);
 
   // Pure 3-Stage Pipeline Selectors
   const incomingVerificationQueue = useMemo(() =>
@@ -513,6 +567,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
         approveReturnRequest,
         toggleBlacklistUser,
         getLastSubmittedForm,
+        resetUserPassword,
       }}
     >
       {children}

@@ -10,14 +10,15 @@ interface ApplicationStatusProps {
 }
 
 export default function ApplicationStatus({ userRole, currentUserEmail = "" }: ApplicationStatusProps) {
-  const { 
+  const {
     incomingVerificationQueue: rawQueue,
     processedApplicationsLog: rawLog,
     historicalLedger: rawLedger,
-    equipmentRows, 
-    approveApplication, 
-    rejectApplication, 
-    blacklistedEmails, 
+    equipmentRows,
+    componentInventory,
+    approveApplication,
+    rejectApplication,
+    blacklistedEmails,
     toggleBlacklistUser,
     submitReturnRequest,
     approveReturnRequest
@@ -40,6 +41,7 @@ export default function ApplicationStatus({ userRole, currentUserEmail = "" }: A
   // States for copy feedback & SMS alert simulation popup
   const [copiedAppId, setCopiedAppId] = useState<string | null>(null);
   const [smsNotificationPayload, setSmsNotificationPayload] = useState<{ isOpen: boolean; studentName: string; phone: string; message: string } | null>(null);
+  const [insufficientStockAppId, setInsufficientStockAppId] = useState<string | null>(null);
 
   const cleanUserEmail = currentUserEmail.trim().toLowerCase();
   
@@ -266,6 +268,30 @@ export default function ApplicationStatus({ userRole, currentUserEmail = "" }: A
   }, [incomingVerificationQueue, processedApplicationsLog, historicalLedger, equipmentRows]);
 
   const handleApproveWithCascade = (appId: string, currentCode: string) => {
+    // Check if equipment is already actively borrowed by someone else
+    const isAlreadyBorrowed = processedApplicationsLog.some(
+      (a) => a.equipmentCode === currentCode && a.stage === 'ACTIVE_BORROW'
+    );
+
+    // Check equipment row status for maintenance
+    const equipmentRow = equipmentRows?.find((r) => r.code === currentCode);
+    const isUnderMaintenance = equipmentRow?.status === 'BROKEN' || equipmentRow?.status === 'CALIBRATING';
+
+    if (isAlreadyBorrowed || isUnderMaintenance) {
+      setInsufficientStockAppId(appId);
+      setTimeout(() => setInsufficientStockAppId(null), 4000);
+      return;
+    }
+
+    // Check component inventory
+    const equipmentName = getEquipmentName(currentCode);
+    const inventoryItem = componentInventory?.find((i) => i.name === equipmentName);
+    if (inventoryItem && inventoryItem.unitsOnShelf <= 0) {
+      setInsufficientStockAppId(appId);
+      setTimeout(() => setInsufficientStockAppId(null), 4000);
+      return;
+    }
+
     if (approveApplication) approveApplication(appId);
   };
 
@@ -538,19 +564,26 @@ export default function ApplicationStatus({ userRole, currentUserEmail = "" }: A
                     </td>
                     <td className="px-4 py-3 text-center">
                       {isStaff ? (
-                        <div className="flex items-center justify-center gap-1.5 flex-wrap">
-                          <button
-                            onClick={() => handleApproveWithCascade(app.id, app.equipmentCode)}
-                            className="px-3 py-1.5 rounded-lg text-[10px] font-bold text-white bg-emerald-600 hover:bg-emerald-700 shadow-sm"
-                          >
-                            Approve Borrow
-                          </button>
-                          <button
-                            onClick={() => rejectApplication && rejectApplication(app.id)}
-                            className="px-2.5 py-1.5 rounded-lg text-[10px] font-bold bg-amber-50 text-amber-700 border border-amber-200 hover:bg-amber-100"
-                          >
-                            <XCircle className="w-3 h-3" /> Reject
-                          </button>
+                        <div className="space-y-1.5">
+                          {insufficientStockAppId === app.id && (
+                            <div className="bg-red-50 border border-red-200 text-red-700 px-2 py-1 rounded text-[9px] font-bold animate-pulse">
+                              Insufficient stock — equipment unavailable
+                            </div>
+                          )}
+                          <div className="flex items-center justify-center gap-1.5 flex-wrap">
+                            <button
+                              onClick={() => handleApproveWithCascade(app.id, app.equipmentCode)}
+                              className="px-3 py-1.5 rounded-lg text-[10px] font-bold text-white bg-emerald-600 hover:bg-emerald-700 shadow-sm"
+                            >
+                              Approve Borrow
+                            </button>
+                            <button
+                              onClick={() => rejectApplication && rejectApplication(app.id)}
+                              className="px-2.5 py-1.5 rounded-lg text-[10px] font-bold bg-amber-50 text-amber-700 border border-amber-200 hover:bg-amber-100"
+                            >
+                              <XCircle className="w-3 h-3" /> Reject
+                            </button>
+                          </div>
                         </div>
                       ) : (
                         <span className="inline-flex items-center gap-1.5 px-2.5 py-1 text-[10px] font-bold text-orange-700 bg-orange-50 border border-orange-200 rounded-full animate-pulse">

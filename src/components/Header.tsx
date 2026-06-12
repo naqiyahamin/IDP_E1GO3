@@ -6,6 +6,7 @@ const pageTitles: Record<ActivePage, string> = {
   laboratories: 'Laboratory List',
   equipment: 'Equipment Availability',
   applications: 'Application Status',
+  inventory: 'Inventory Management',
   staff: 'Staff On Duty',
 };
 

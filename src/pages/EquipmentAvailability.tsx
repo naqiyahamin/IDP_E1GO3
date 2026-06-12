@@ -47,12 +47,16 @@ export function EquipmentAvailability({ userRole, currentUserEmail, onSuccessRed
   const pendingCount = equipmentRows.filter((r) => r.status === 'PENDING PICKUP' || r.status === 'RETURN_PENDING').length;
   const borrowedCount = equipmentRows.filter((r) => r.status === 'BORROWED').length;
 
-  const handleBorrowSubmitWithAttachment = (data: BorrowFormData, photoBase64?: string) => {
+  const handleBorrowSubmitWithAttachment = (data: BorrowFormData, photoBase64?: string): boolean => {
     if (borrowTarget) {
-      submitApplication(data, borrowTarget, photoBase64);
-      setBorrowTarget(null);
-      onSuccessRedirect?.();
+      const success = submitApplication(data, borrowTarget, photoBase64);
+      if (success) {
+        setBorrowTarget(null);
+        onSuccessRedirect?.();
+      }
+      return success;
     }
+    return false;
   };
 
   const agt567Status = equipmentRows.find((r) => r.code === 'AGT567')?.status ?? 'AVAILABLE';
