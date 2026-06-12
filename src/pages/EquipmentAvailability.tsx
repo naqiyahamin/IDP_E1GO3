@@ -14,7 +14,7 @@ import TinkerIoTSimulator from '../components/TinkerIoTSimulator';
 import { useAppState, type EquipmentStatus, type Application } from '../context';
 import type { UserRole } from '../auth';
 
-const statusBadge: Record<EquipmentStatus | 'BROKEN' | 'CALIBRATING', string> = {
+const statusBadge: Record<EquipmentStatus, string> = {
   AVAILABLE: 'bg-emerald-50 text-emerald-700 border-emerald-200',
   'PENDING PICKUP': 'bg-orange-50 text-orange-700 border-orange-200',
   BORROWED: 'bg-red-50 text-red-700 border-red-200',
@@ -23,7 +23,7 @@ const statusBadge: Record<EquipmentStatus | 'BROKEN' | 'CALIBRATING', string> = 
   CALIBRATING: 'bg-orange-100 text-orange-800 border-orange-300',
 };
 
-const statusDot: Record<EquipmentStatus | 'BROKEN' | 'CALIBRATING', string> = {
+const statusDot: Record<EquipmentStatus, string> = {
   AVAILABLE: 'bg-emerald-500',
   'PENDING PICKUP': 'bg-orange-500',
   BORROWED: 'bg-red-500',
@@ -59,31 +59,9 @@ export function EquipmentAvailability({
     (r) => r.status === 'PENDING PICKUP' || r.status === 'RETURN_PENDING'
   ).length;
   const borrowedCount = equipmentRows.filter((r) => r.status === 'BORROWED').length;
-
-  const getEquipmentTypeKey = (code: string) => {
-    const match = code.match(/^[A-Za-z]+/);
-    return match ? match[0].toUpperCase() : code.slice(0, 3).toUpperCase();
-  };
-
-  const findAvailableRedirectCode = (requestedCode: string): string | null => {
-    const requestedItem = equipmentRows.find((row) => row.code === requestedCode);
-
-    if (requestedItem?.status === 'AVAILABLE') {
-      return requestedCode;
-    }
-
-    const requestedTypeKey = getEquipmentTypeKey(requestedCode);
-
-    const alternativeItem = equipmentRows.find((row) => {
-      const sameType = getEquipmentTypeKey(row.code) === requestedTypeKey;
-      const isNotRequestedCode = row.code !== requestedCode;
-      const isAvailable = row.status === 'AVAILABLE';
-
-      return sameType && isNotRequestedCode && isAvailable;
-    });
-
-    return alternativeItem?.code || null;
-  };
+  const maintenanceCount = equipmentRows.filter(
+    (r) => r.status === 'BROKEN' || r.status === 'CALIBRATING'
+  ).length;
 
   const handleBorrowSubmitWithAttachment = async (
     data: BorrowFormData,
@@ -91,16 +69,7 @@ export function EquipmentAvailability({
   ): Promise<boolean> => {
     if (!borrowTarget) return false;
 
-    const finalEquipmentCode = findAvailableRedirectCode(borrowTarget);
-
-    if (!finalEquipmentCode) {
-      alert(
-        'No available equipment with the same type/code is currently available. Please try again later or choose another equipment.'
-      );
-      return false;
-    }
-
-    const success = await submitApplication(data, finalEquipmentCode, photoBase64);
+    const success = await submitApplication(data, borrowTarget, photoBase64);
 
     if (success) {
       setBorrowTarget(null);
@@ -140,7 +109,7 @@ export function EquipmentAvailability({
 
   return (
     <div className="space-y-6">
-      <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
+      <div className="grid grid-cols-1 sm:grid-cols-4 gap-4">
         <div className="bg-white rounded-xl border border-gray-200 p-5">
           <div className="flex items-center gap-3">
             <div className="w-10 h-10 rounded-lg bg-emerald-50 flex items-center justify-center">
@@ -176,6 +145,18 @@ export function EquipmentAvailability({
             </div>
           </div>
         </div>
+
+        <div className="bg-white rounded-xl border border-gray-200 p-5">
+          <div className="flex items-center gap-3">
+            <div className="w-10 h-10 rounded-lg bg-slate-100 flex items-center justify-center">
+              <Wrench className="w-5 h-5 text-slate-600" />
+            </div>
+            <div>
+              <p className="text-2xl font-bold text-gray-900">{maintenanceCount}</p>
+              <p className="text-xs text-gray-500">Maintenance</p>
+            </div>
+          </div>
+        </div>
       </div>
 
       <div className="flex flex-col lg:flex-row gap-6">
@@ -188,7 +169,9 @@ export function EquipmentAvailability({
               <h3 className="font-bold text-gray-900 text-sm">
                 Oscilloscope Live Stock Tracker
               </h3>
-              <p className="text-[10px] text-gray-500">Advanced Electronics Laboratory</p>
+              <p className="text-[10px] text-gray-500">
+                Advanced Electronics Laboratory
+              </p>
             </div>
           </div>
 
@@ -203,7 +186,16 @@ export function EquipmentAvailability({
                     CODE
                   </th>
                   <th className="text-left px-4 py-3 font-semibold text-gray-600 text-xs">
-                    LAST DATE OF BEING USED
+                    EQUIPMENT
+                  </th>
+                  <th className="text-left px-4 py-3 font-semibold text-gray-600 text-xs">
+                    TYPE
+                  </th>
+                  <th className="text-center px-4 py-3 font-semibold text-gray-600 text-xs">
+                    QTY
+                  </th>
+                  <th className="text-left px-4 py-3 font-semibold text-gray-600 text-xs">
+                    LAST DATE USED
                   </th>
                   <th className="text-left px-4 py-3 font-semibold text-gray-600 text-xs">
                     LAB LOCATION
@@ -234,6 +226,15 @@ export function EquipmentAvailability({
                     <td className="px-4 py-3 font-mono font-bold text-gray-900 text-xs">
                       {row.code}
                     </td>
+                    <td className="px-4 py-3 text-gray-700 text-xs font-semibold">
+                      {row.equipmentName}
+                    </td>
+                    <td className="px-4 py-3 text-gray-500 text-xs font-mono">
+                      {row.equipmentType}
+                    </td>
+                    <td className="px-4 py-3 text-center text-xs font-bold">
+                      {row.quantityAvailable}
+                    </td>
                     <td className="px-4 py-3 text-gray-600 text-xs">
                       {row.lastDateUsed}
                     </td>
@@ -254,7 +255,7 @@ export function EquipmentAvailability({
                         {row.status === 'PENDING PICKUP'
                           ? 'PENDING APPROVAL'
                           : row.status === 'BROKEN' || row.status === 'CALIBRATING'
-                            ? 'NOT AVAILABLE'
+                            ? 'MAINTENANCE'
                             : row.status}
                       </span>
                     </td>
@@ -262,7 +263,7 @@ export function EquipmentAvailability({
                       {row.verificationBy}
                     </td>
                     <td className="px-4 py-3 text-center">
-                      {isStudent && row.status === 'AVAILABLE' ? (
+                      {isStudent && row.status === 'AVAILABLE' && row.quantityAvailable > 0 ? (
                         <button
                           onClick={() => setBorrowTarget(row.code)}
                           className="px-3 py-1.5 text-[10px] font-bold rounded-lg bg-utm-maroon text-white hover:bg-utm-maroon-dark transition-colors cursor-pointer"
@@ -307,7 +308,7 @@ export function EquipmentAvailability({
                   Processed Applications History Log (Active Borrows)
                 </h3>
                 <p className="text-[10px] text-gray-500">
-                  Equipment currently out in field context layout — Haven&apos;t been returned
+                  Equipment currently out in field context layout - not yet returned
                 </p>
               </div>
             </div>
@@ -316,7 +317,8 @@ export function EquipmentAvailability({
               <table className="w-full text-left border-collapse text-xs">
                 <thead>
                   <tr className="bg-gray-50/70 border-b border-gray-200 text-gray-500 uppercase tracking-wider text-[10px] font-bold">
-                    <th className="p-4">Equipment Code</th>
+                    <th className="p-4">Original Code</th>
+                    <th className="p-4">Assigned Code</th>
                     <th className="p-4">Student Details</th>
                     <th className="p-4">Timestamp Duration</th>
                     <th className="p-4">Live Status Tracking</th>
@@ -326,15 +328,25 @@ export function EquipmentAvailability({
                 <tbody className="divide-y divide-gray-100">
                   {processedApplicationsLog.length === 0 ? (
                     <tr>
-                      <td colSpan={4} className="p-6 text-center text-gray-400 italic">
+                      <td colSpan={5} className="p-6 text-center text-gray-400 italic">
                         No active borrowing cycles currently deployed in the field.
                       </td>
                     </tr>
                   ) : (
                     processedApplicationsLog.map((app: Application) => (
                       <tr key={app.id} className="hover:bg-gray-50/40">
-                        <td className="p-4 font-mono font-bold text-utm-maroon text-sm">
-                          {app.equipmentCode}
+                        <td className="p-4 font-mono font-bold text-gray-500 text-sm">
+                          {app.originalEquipmentCode || app.equipmentCode}
+                        </td>
+                        <td className="p-4">
+                          <div className="font-mono font-bold text-utm-maroon text-sm">
+                            {app.finalEquipmentCode || app.equipmentCode}
+                          </div>
+                          {app.autoRedirectNote && (
+                            <div className="mt-1 max-w-xs text-[10px] text-amber-700 font-semibold">
+                              {app.autoRedirectNote}
+                            </div>
+                          )}
                         </td>
                         <td className="p-4">
                           <div className="font-bold text-gray-900 uppercase">
@@ -354,7 +366,7 @@ export function EquipmentAvailability({
                         </td>
                         <td className="p-4">
                           <span className="inline-flex items-center gap-1 font-bold text-[10px] px-2 py-0.5 rounded bg-amber-50 text-amber-700 border border-amber-200 uppercase">
-                            ⚠️ Still Borrowing / Not Returned
+                            Still Borrowing / Not Returned
                           </span>
                         </td>
                       </tr>
@@ -373,7 +385,7 @@ export function EquipmentAvailability({
                   All-Time Transaction Historical Ledger
                 </h3>
                 <p className="text-[10px] text-gray-500">
-                  Immutable structural system record trail logs — Cannot be deleted
+                  Immutable structural system record trail logs - cannot be deleted
                 </p>
               </div>
             </div>
@@ -382,7 +394,8 @@ export function EquipmentAvailability({
               <table className="w-full text-left border-collapse text-xs">
                 <thead>
                   <tr className="bg-gray-50/70 border-b border-gray-200 text-gray-500 uppercase tracking-wider text-[10px] font-bold">
-                    <th className="p-4">Asset Code</th>
+                    <th className="p-4">Original Code</th>
+                    <th className="p-4">Final Code</th>
                     <th className="p-4">Student Account</th>
                     <th className="p-4">Time Window Lifecycle</th>
                     <th className="p-4">Overseeing Sign-Off</th>
@@ -393,15 +406,25 @@ export function EquipmentAvailability({
                 <tbody className="divide-y divide-gray-100">
                   {historicalLedger.length === 0 ? (
                     <tr>
-                      <td colSpan={5} className="p-6 text-center text-gray-400 italic">
+                      <td colSpan={6} className="p-6 text-center text-gray-400 italic">
                         No permanently archived transaction cycles recorded yet.
                       </td>
                     </tr>
                   ) : (
                     historicalLedger.map((app: Application) => (
                       <tr key={app.id} className="hover:bg-gray-50/40">
-                        <td className="p-4 font-mono font-bold text-gray-900">
-                          {app.equipmentCode}
+                        <td className="p-4 font-mono font-bold text-gray-500">
+                          {app.originalEquipmentCode || app.equipmentCode}
+                        </td>
+                        <td className="p-4">
+                          <div className="font-mono font-bold text-gray-900">
+                            {app.finalEquipmentCode || app.equipmentCode}
+                          </div>
+                          {app.autoRedirectNote && (
+                            <div className="mt-1 max-w-xs text-[10px] text-amber-700 font-semibold">
+                              {app.autoRedirectNote}
+                            </div>
+                          )}
                         </td>
                         <td className="p-4">
                           <div className="font-semibold text-gray-800 uppercase">
@@ -465,7 +488,7 @@ export function EquipmentAvailability({
               onClick={() => setActivePreviewImage(null)}
               className="absolute top-2 right-2 bg-black text-white rounded-full w-6 h-6 flex items-center justify-center text-xs font-bold cursor-pointer"
             >
-              ✕
+              x
             </button>
           </div>
         </div>

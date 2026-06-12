@@ -21,6 +21,14 @@ export type EquipmentStatus =
 
 export type AppStatus = 'PENDING' | 'APPROVED' | 'REJECTED' | 'RETURNED' | 'BANNED';
 
+export interface ApprovalResult {
+  status: 'approved' | 'waiting_list' | 'ignored';
+  message: string;
+  originalEquipmentCode?: string;
+  finalEquipmentCode?: string;
+  autoRedirectNote?: string;
+}
+
 export interface ReturnDetailsData {
   dateReturned: string;
   overseeingStaff: string;
@@ -49,6 +57,9 @@ export interface HistoryEntry {
 export interface OscilloscopeRow {
   no: number;
   code: string;
+  equipmentName: string;
+  equipmentType: string;
+  quantityAvailable: number;
   lastDateUsed: string;
   labLocation: string;
   status: EquipmentStatus;
@@ -59,6 +70,11 @@ export interface Application {
   id: string;
   formData: BorrowFormData;
   equipmentCode: string;
+  originalEquipmentCode?: string;
+  finalEquipmentCode?: string;
+  autoRedirectNote?: string;
+  waitingListReason?: string;
+  equipmentType?: string;
   submittedAt: string;
   isBlacklisted: boolean;
   status: AppStatus;
@@ -90,7 +106,7 @@ interface AppState {
     equipmentCode: string,
     photoAttachment?: string
   ) => Promise<boolean>;
-  approveApplication: (appId: string) => Promise<void>;
+  approveApplication: (appId: string) => Promise<ApprovalResult>;
   rejectApplication: (appId: string) => Promise<void>;
   banApplication: (appId: string) => Promise<void>;
   submitReturnRequest: (appId: string, returnData: ReturnDetailsData) => Promise<void>;
@@ -107,7 +123,8 @@ function getEquipmentName(code: string): string {
   if (code.startsWith('ARD')) return 'Arduino Uno';
   if (code.startsWith('ESP')) return 'ESP32 Microcontroller';
   if (code.startsWith('MXW')) return 'Regulated DC Power Supply';
-  return 'Digital Oscilloscope';
+  if (code.startsWith('RFE')) return 'RF Spectrum Analyzer';
+  return 'General Equipment';
 }
 
 function getEquipmentTypeKey(code: string): string {
@@ -119,6 +136,11 @@ function dbRowToApplication(row: Record<string, unknown>): Application {
   return {
     id: row.id as string,
     equipmentCode: row.equipment_code as string,
+    originalEquipmentCode: (row.original_equipment_code as string) || undefined,
+    finalEquipmentCode: (row.final_equipment_code as string) || undefined,
+    autoRedirectNote: (row.auto_redirect_note as string) || undefined,
+    waitingListReason: (row.waiting_list_reason as string) || undefined,
+    equipmentType: (row.equipment_type as string) || undefined,
     submittedAt: row.submitted_at as string,
     isBlacklisted: row.is_blacklisted as boolean,
     status: row.status as AppStatus,
@@ -152,12 +174,23 @@ function dbRowToApplication(row: Record<string, unknown>): Application {
 }
 
 function dbRowToEquipment(row: Record<string, unknown>): OscilloscopeRow {
+  const code = row.code as string;
+  const status = row.status as EquipmentStatus;
+
   return {
     no: row.no as number,
-    code: row.code as string,
+    code,
+    equipmentName: (row.equipment_name as string) || getEquipmentName(code),
+    equipmentType: (row.equipment_type as string) || getEquipmentTypeKey(code),
+    quantityAvailable:
+      typeof row.quantity_available === 'number'
+        ? row.quantity_available
+        : status === 'AVAILABLE'
+          ? 1
+          : 0,
     lastDateUsed: row.last_date_used as string,
     labLocation: row.lab_location as string,
-    status: row.status as EquipmentStatus,
+    status,
     verificationBy: row.verification_by as string,
   };
 }
@@ -205,6 +238,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
     if (appsRes.data) setApplicationQueue(appsRes.data.map(dbRowToApplication));
     if (equipRes.data) setEquipmentRows(equipRes.data.map(dbRowToEquipment));
     if (invRes.data) setComponentInventory(invRes.data.map(dbRowToInventory));
+
     if (blackRes.data) {
       setBlacklistedEmails(
         blackRes.data.map((r: Record<string, unknown>) =>
@@ -212,6 +246,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
         )
       );
     }
+
     if (histRes.data) setTransactionHistory(histRes.data.map(dbRowToHistory));
 
     setLoading(false);
@@ -237,7 +272,16 @@ export function AppProvider({ children }: { children: ReactNode }) {
   }, [fetchAllData]);
 
   const updateEquipmentStatus = useCallback((code: string, newStatus: EquipmentStatus) => {
-    supabase.from('equipment_rows').update({ status: newStatus }).eq('code', code).then();
+    const quantityAvailable = newStatus === 'AVAILABLE' ? 1 : 0;
+
+    supabase
+      .from('equipment_rows')
+      .update({
+        status: newStatus,
+        quantity_available: quantityAvailable,
+      })
+      .eq('code', code)
+      .then();
   }, []);
 
   const toggleBlacklistUser = useCallback(
@@ -273,6 +317,11 @@ export function AppProvider({ children }: { children: ReactNode }) {
         student_year_course: formData.yearCourse,
         equipment_code: equipmentCode,
         equipment_name: getEquipmentName(equipmentCode),
+        equipment_type: getEquipmentTypeKey(equipmentCode),
+        original_equipment_code: equipmentCode,
+        final_equipment_code: null,
+        auto_redirect_note: null,
+        waiting_list_reason: null,
         borrow_date: formData.dateBorrow,
         duration: formData.duration,
         return_target: formData.returnTime,
@@ -299,127 +348,19 @@ export function AppProvider({ children }: { children: ReactNode }) {
   );
 
   const approveApplication = useCallback(
-    async (appId: string) => {
-      const now = new Date().toISOString();
+    async (appId: string): Promise<ApprovalResult> => {
+      const { data, error } = await supabase.rpc('approve_application_with_redirect', {
+        p_app_id: appId,
+      });
 
-      const { data: target, error: targetError } = await supabase
-        .from('applications')
-        .select('*')
-        .eq('id', appId)
-        .single();
-
-      if (targetError || !target) {
-        console.error('Application not found:', targetError);
-        return;
+      if (error) {
+        console.error('Approve application failed:', error);
+        throw error;
       }
-
-      const requestedCode = target.equipment_code as string;
-      const requestedTypeKey = getEquipmentTypeKey(requestedCode);
-      const equipmentName = getEquipmentName(requestedCode);
-
-      const { data: equipmentList, error: equipmentError } = await supabase
-        .from('equipment_rows')
-        .select('*')
-        .order('no', { ascending: true });
-
-      if (equipmentError || !equipmentList) {
-        console.error('Unable to check equipment availability:', equipmentError);
-        return;
-      }
-
-      const requestedEquipment = equipmentList.find(
-        (item: Record<string, unknown>) => item.code === requestedCode
-      );
-
-      let finalEquipmentCode = requestedCode;
-
-      if (!requestedEquipment || requestedEquipment.status !== 'AVAILABLE') {
-        const alternativeEquipment = equipmentList.find((item: Record<string, unknown>) => {
-          const code = item.code as string;
-          const status = item.status as EquipmentStatus;
-
-          return (
-            code !== requestedCode &&
-            getEquipmentTypeKey(code) === requestedTypeKey &&
-            status === 'AVAILABLE'
-          );
-        });
-
-        if (!alternativeEquipment) {
-          await supabase
-            .from('applications')
-            .update({
-              status: 'PENDING',
-              stage: 'PENDING',
-            })
-            .eq('id', appId);
-
-          alert('No alternative same-type equipment is available. Application remains pending.');
-          return;
-        }
-
-        finalEquipmentCode = alternativeEquipment.code as string;
-      }
-
-      const { data: activeBorrowSameCode } = await supabase
-        .from('applications')
-        .select('id')
-        .neq('id', appId)
-        .eq('equipment_code', finalEquipmentCode)
-        .eq('stage', 'ACTIVE_BORROW');
-
-      if (activeBorrowSameCode && activeBorrowSameCode.length > 0) {
-        alert('This equipment has just been borrowed. Please approve again to auto-redirect.');
-        return;
-      }
-
-      const { data: invItem } = await supabase
-        .from('component_inventory')
-        .select('*')
-        .eq('name', equipmentName)
-        .single();
-
-      if (invItem && (invItem.units_on_shelf as number) <= 0) {
-        alert('No stock available for this equipment type.');
-        return;
-      }
-
-      const unitsOut = (invItem?.units_out as number | undefined) ?? 0;
-      const unitsOnShelf = (invItem?.units_on_shelf as number | undefined) ?? 0;
-
-      const updateApplicationData: Record<string, unknown> = {
-        equipment_code: finalEquipmentCode,
-        equipment_name: getEquipmentName(finalEquipmentCode),
-        status: 'APPROVED',
-        stage: 'ACTIVE_BORROW',
-        is_approved: true,
-        approved_at: now,
-        processed_at: now,
-      };
-
-      const { error: approveError } = await supabase
-        .from('applications')
-        .update(updateApplicationData)
-        .eq('id', appId)
-        .eq('stage', 'PENDING');
-
-      if (approveError) {
-        console.error('Approve application failed:', approveError);
-        return;
-      }
-
-      await Promise.all([
-        supabase.from('equipment_rows').update({ status: 'BORROWED' }).eq('code', finalEquipmentCode),
-        supabase
-          .from('component_inventory')
-          .update({
-            units_out: unitsOut + 1,
-            units_on_shelf: Math.max(0, unitsOnShelf - 1),
-          })
-          .eq('name', equipmentName),
-      ]);
 
       await fetchAllData();
+
+      return data as ApprovalResult;
     },
     [fetchAllData]
   );
@@ -502,7 +443,13 @@ export function AppProvider({ children }: { children: ReactNode }) {
             return_submitted_at: new Date().toISOString(),
           })
           .eq('id', appId),
-        supabase.from('equipment_rows').update({ status: 'RETURN_PENDING' }).eq('code', equipmentCode),
+        supabase
+          .from('equipment_rows')
+          .update({
+            status: 'RETURN_PENDING',
+            quantity_available: 0,
+          })
+          .eq('code', equipmentCode),
       ]);
 
       await fetchAllData();
@@ -521,7 +468,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
       if (!target) return;
 
       const equipmentCode = target.equipment_code as string;
-      const equipmentName = getEquipmentName(equipmentCode);
+      const equipmentName = (target.equipment_name as string) || getEquipmentName(equipmentCode);
 
       const { data: invItem } = await supabase
         .from('component_inventory')
@@ -544,6 +491,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
           .from('equipment_rows')
           .update({
             status: 'AVAILABLE',
+            quantity_available: 1,
             last_date_used:
               target.return_date_returned || new Date().toISOString().split('T')[0],
           })
