@@ -1,4 +1,5 @@
 import { createContext, useContext, useState, useCallback, useEffect, useMemo, type ReactNode } from 'react';
+
 import { type BorrowFormData } from '../components/BorrowFormModal';
 
 /*
@@ -9,6 +10,7 @@ import { type BorrowFormData } from '../components/BorrowFormModal';
  */
 
 export type EquipmentStatus = 'AVAILABLE' | 'PENDING PICKUP' | 'BORROWED' | 'RETURN_PENDING';
+
 export type AppStatus = 'PENDING' | 'APPROVED' | 'REJECTED' | 'RETURNED';
 
 export interface ReturnDetailsData {
@@ -77,7 +79,7 @@ interface AppState {
   submitApplication: (formData: BorrowFormData, equipmentCode: string, photoAttachment?: string) => void;
   approveApplication: (appId: string) => void;
   rejectApplication: (appId: string) => void;
-  banUserAndRejectApplication: (appId: string, email: string) => void; // Added here
+  banUserAndRejectApplication: (appId: string, email: string) => void; // Added for manual ban feature
   submitReturnRequest: (appId: string, returnData: ReturnDetailsData) => void;
   approveReturnRequest: (appId: string) => void;
   toggleBlacklistUser: (email: string) => void;
@@ -233,6 +235,9 @@ const initialInventory: ComponentType[] = [
 ];
 
 export function AppProvider({ children }: { children: ReactNode }) {
+  // ===================================================================
+  // FIX: LAZY REHYDRATION STATE INITIALIZERS (Eliminates overwrite race condition)
+  // ===================================================================
   const [equipmentRows, setEquipmentRows] = useState<OscilloscopeRow[]>(() => {
     const saved = localStorage.getItem('utm_equipment_rows');
     return saved ? JSON.parse(saved) : initialEquipment;
@@ -265,6 +270,9 @@ export function AppProvider({ children }: { children: ReactNode }) {
     return saved ? JSON.parse(saved) : initialInventory;
   });
 
+  // ===================================================================
+  // COMPACT LIFECYCLE SYNCERS (Saves changes automatically into Storage logs)
+  // ===================================================================
   useEffect(() => {
     localStorage.setItem('utm_equipment_rows', JSON.stringify(equipmentRows));
   }, [equipmentRows]);
@@ -285,6 +293,9 @@ export function AppProvider({ children }: { children: ReactNode }) {
     localStorage.setItem('utm_component_inventory', JSON.stringify(componentInventory));
   }, [componentInventory]);
 
+  // ===================================================================
+  // LIFE TRANSITION DISPATCHERS
+  // ===================================================================
   const updateEquipmentStatus = useCallback((code: string, newStatus: EquipmentStatus) => {
     setEquipmentRows((prev) =>
       prev.map((row) => (row.code === code ? { ...row, status: newStatus } : row))
@@ -389,11 +400,14 @@ export function AppProvider({ children }: { children: ReactNode }) {
     });
   }, []);
 
-  // --- NEW HANDLER TO SUPPORT THE MANUAL STAFF BAN FEATURE ---
+  /**
+   * NEW ACTION DISPATCHER: Adds target user to the global blacklist ledger
+   * and automatically discards the target application request.
+   */
   const banUserAndRejectApplication = useCallback((appId: string, email: string) => {
     const normalizedEmail = email.toLowerCase().trim();
 
-    // 1. Manually log the student's email into the blacklist ledger
+    // 1. Permanently append the user to the system-wide blacklist configuration
     setBlacklistedEmails((prev) => {
       if (!prev.includes(normalizedEmail)) {
         return [...prev, normalizedEmail];
@@ -401,7 +415,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
       return prev;
     });
 
-    // 2. Reject the current pending request and make the device available again
+    // 2. Clear out allocation holds and strip application from active screens
     setApplicationQueue((prevQueue) => {
       const target = prevQueue.find((a) => a.id === appId);
       if (target) {
@@ -410,7 +424,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
         );
       }
       
-      // Remove this application from the live view queue immediately
+      // Filter out application request and apply blacklist flag across remaining items
       const updatedQueue = prevQueue.filter((a) => a.id !== appId);
       return updatedQueue.map((app) => 
         app.formData?.emailAddress?.toLowerCase().trim() === normalizedEmail
@@ -499,6 +513,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
     return applicationQueue[applicationQueue.length - 1].formData;
   }, [applicationQueue]);
 
+  // Pure 3-Stage Pipeline Selectors
   const incomingVerificationQueue = useMemo(() =>
     applicationQueue.filter((app) => app.stage === 'PENDING' || app.stage === 'RETURN_PENDING'),
     [applicationQueue]
@@ -529,7 +544,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
         submitApplication,
         approveApplication,
         rejectApplication,
-        banUserAndRejectApplication, // Exposed here
+        banUserAndRejectApplication, // Exposed to components
         submitReturnRequest,
         approveReturnRequest,
         toggleBlacklistUser,
