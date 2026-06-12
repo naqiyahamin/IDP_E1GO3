@@ -57,7 +57,7 @@ export interface Application {
   photoAttachment?: string;
   processedAt?: string;
   returnDetails?: ReturnDetailsData;
-  stage: 'PENDING' | 'ACTIVE_BORROW' | 'RETURN_PENDING' | 'HISTORICAL';
+  stage: 'PENDING' | 'ACTIVE_BORROW' | 'HISTORICAL' | 'RETURN_PENDING';
   isApproved: boolean;
   isReturned: boolean;
   isReturnVerified: boolean;
@@ -79,7 +79,6 @@ interface AppState {
   submitApplication: (formData: BorrowFormData, equipmentCode: string, photoAttachment?: string) => void;
   approveApplication: (appId: string) => void;
   rejectApplication: (appId: string) => void;
-  banUserAndRejectApplication: (appId: string, email: string) => void; // Added for manual ban feature
   submitReturnRequest: (appId: string, returnData: ReturnDetailsData) => void;
   approveReturnRequest: (appId: string) => void;
   toggleBlacklistUser: (email: string) => void;
@@ -400,40 +399,6 @@ export function AppProvider({ children }: { children: ReactNode }) {
     });
   }, []);
 
-  /**
-   * NEW ACTION DISPATCHER: Adds target user to the global blacklist ledger
-   * and automatically discards the target application request.
-   */
-  const banUserAndRejectApplication = useCallback((appId: string, email: string) => {
-    const normalizedEmail = email.toLowerCase().trim();
-
-    // 1. Permanently append the user to the system-wide blacklist configuration
-    setBlacklistedEmails((prev) => {
-      if (!prev.includes(normalizedEmail)) {
-        return [...prev, normalizedEmail];
-      }
-      return prev;
-    });
-
-    // 2. Clear out allocation holds and strip application from active screens
-    setApplicationQueue((prevQueue) => {
-      const target = prevQueue.find((a) => a.id === appId);
-      if (target) {
-        setEquipmentRows((prevRows) =>
-          prevRows.map((row) => row.code === target.equipmentCode ? { ...row, status: 'AVAILABLE' } : row)
-        );
-      }
-      
-      // Filter out application request and apply blacklist flag across remaining items
-      const updatedQueue = prevQueue.filter((a) => a.id !== appId);
-      return updatedQueue.map((app) => 
-        app.formData?.emailAddress?.toLowerCase().trim() === normalizedEmail
-          ? { ...app, isBlacklisted: true }
-          : app
-      );
-    });
-  }, []);
-
   const submitReturnRequest = useCallback((appId: string, returnDetails: ReturnDetailsData) => {
     setApplicationQueue((prevQueue) => {
       const target = prevQueue.find((a) => a.id === appId);
@@ -544,7 +509,6 @@ export function AppProvider({ children }: { children: ReactNode }) {
         submitApplication,
         approveApplication,
         rejectApplication,
-        banUserAndRejectApplication, // Exposed to components
         submitReturnRequest,
         approveReturnRequest,
         toggleBlacklistUser,
