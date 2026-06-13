@@ -80,9 +80,7 @@ export function EquipmentAvailability({
   };
 
   const agt567Status = equipmentRows.find((r) => r.code === 'AGT567')?.status ?? 'AVAILABLE';
-  const isStudent =
-  String(userRole || '').trim().toLowerCase() === 'student' ||
-  String(currentUserEmail || '').trim().toLowerCase().endsWith('@graduate.utm.my');
+  const isStudent = userRole === 'student';
 
   if (borrowTarget && isStudent) {
     return (
