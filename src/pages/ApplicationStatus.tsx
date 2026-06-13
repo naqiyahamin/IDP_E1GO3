@@ -1,4 +1,4 @@
-import { useState, useMemo } from 'react';
+import { useState, useMemo, useEffect } from 'react';
 import {
   Clock,
   ShieldCheck,
@@ -14,6 +14,7 @@ import {
   Phone,
   XCircle,
 } from 'lucide-react';
+import emailjs from '@emailjs/browser';
 import { useAppState } from '../context';
 import type { UserRole } from '../auth';
 
@@ -31,6 +32,7 @@ export default function ApplicationStatus({
     processedApplicationsLog: rawLog,
     historicalLedger: rawLedger,
     equipmentRows,
+    componentInventory,
     approveApplication,
     rejectApplication,
     banApplication,
@@ -71,6 +73,43 @@ export default function ApplicationStatus({
   const cleanUserEmail = currentUserEmail.trim().toLowerCase();
   const isStaff = userRole === 'staff' || cleanUserEmail === 'naqiyah@graduate.utm.my';
 
+  useEffect(() => {
+    if (!isStaff) return;
+
+    const dispatchAutomatedNotifications = async () => {
+      const currentSystemDate = new Date('2026-06-12');
+      const targetLogSource = rawLog;
+
+      for (const app of targetLogSource) {
+        const isReturnSubmitted = app.isReturned && !!app.returnDetails;
+        const targetReturnDate = new Date(app.formData.dateBorrow);
+
+        if (
+          !isReturnSubmitted &&
+          !isNaN(targetReturnDate.getTime()) &&
+          targetReturnDate < currentSystemDate
+        ) {
+          try {
+            await emailjs.send(
+              'service_53rcbha',
+              'YOUR_TEMPLATE_ID_HERE',
+              {
+                studentName: app.formData.fullName,
+                equipmentCode: app.equipmentCode,
+                to_email: app.formData.emailAddress,
+              },
+              'YOUR_PUBLIC_KEY_HERE'
+            );
+          } catch (error) {
+            console.error('Automated Notification pipeline relay failure:', error);
+          }
+        }
+      }
+    };
+
+    dispatchAutomatedNotifications();
+  }, [rawLog, isStaff]);
+
   const incomingVerificationQueue = useMemo(() => {
     if (isStaff) return rawQueue;
     return rawQueue.filter(
@@ -96,9 +135,13 @@ export default function ApplicationStatus({
     if (code.startsWith('AGT')) return 'Digital Storage Oscilloscope (Tektronix)';
     if (code.startsWith('MXW')) return 'Regulated DC Power Supply';
     if (code.startsWith('RFE')) return 'RF Spectrum Analyzer';
-    if (code.startsWith('ARD')) return 'Arduino Uno';
-    if (code.startsWith('ESP')) return 'ESP32 Microcontroller';
-    return 'General Equipment';
+    return 'Microcontroller Prototyping Trainer Kit';
+  };
+
+  const getAssetTotalCapacity = (code: string) => {
+    if (code.includes('570')) return 5;
+    if (code.includes('210')) return 8;
+    return 4;
   };
 
   const inventorySpreadsheetData = useMemo(() => {
@@ -112,7 +155,6 @@ export default function ApplicationStatus({
         inPossession: number;
         overdueCount: number;
         maintenanceStatus: 'BROKEN' | 'CALIBRATING' | null;
-        quantityAvailable: number;
       }
     > = {};
 
@@ -126,13 +168,12 @@ export default function ApplicationStatus({
 
         stats[code] = {
           code,
-          name: liveMatch?.equipmentName || getEquipmentName(code),
+          name: getEquipmentName(code),
           totalBorrowedTimes: 0,
           isBeingBorrowed: 0,
           inPossession: 0,
           overdueCount: 0,
           maintenanceStatus: currentMaint,
-          quantityAvailable: liveMatch?.quantityAvailable ?? 0,
         };
       }
     };
@@ -153,7 +194,6 @@ export default function ApplicationStatus({
         stats[app.equipmentCode].inPossession += 1;
         const currentSystemDate = new Date('2026-06-12');
         const targetReturnDate = new Date(app.formData.dateBorrow);
-
         if (!isNaN(targetReturnDate.getTime()) && targetReturnDate < currentSystemDate) {
           stats[app.equipmentCode].overdueCount += 1;
         }
@@ -188,7 +228,6 @@ export default function ApplicationStatus({
       setTimeout(() => setInsufficientStockAppId(null), 4000);
     }
   };
-
   const handleInstantCheck = (e: React.FormEvent) => {
     e.preventDefault();
     if (!checkEmail.trim()) return;
@@ -209,7 +248,7 @@ export default function ApplicationStatus({
     if (!file) return;
 
     if (file.size < 20000) {
-      setReturnError('Image quality too low. Please upload a clear, high-resolution photo.');
+      setReturnError('Image quality too low. Please snap a clear, high-resolution photo.');
       return;
     }
 
@@ -227,12 +266,12 @@ export default function ApplicationStatus({
     if (!activeReturnAppId) return;
 
     if (!returnForm.overseeingStaff.trim()) {
-      setReturnError('Please specify the lab staff overseeing the return verification.');
+      setReturnError('Please specify the lab staff overseeing your returning verification sequence.');
       return;
     }
 
     if (!returnForm.equipmentImage) {
-      setReturnError('Equipment image proof is required.');
+      setReturnError('High quality image validation confirmation payload file is required.');
       return;
     }
 
@@ -265,7 +304,7 @@ export default function ApplicationStatus({
       isOpen: true,
       studentName,
       phone,
-      message: `[UTM LAB ALERT] Hi ${studentName}, your borrowed laboratory equipment (${equipmentCode}) is currently marked as OVERDUE CRITICAL. Please return it to the lab counter immediately to prevent account suspension.`,
+      message: `[UTM LAB ALERT] Hi ${studentName}, your borrowed laboratory equipment (${equipmentCode}) is currently marked as OVERDUE CRITICAL. Please return it to the lab counter immediately to prevent permanent account suspension.`,
     });
   };
 
@@ -284,11 +323,11 @@ export default function ApplicationStatus({
               <span className="text-[10px] text-slate-500 font-medium">Applications</span>
             </div>
             <p className="text-[10px] text-amber-600 font-semibold flex items-center gap-1 mt-0.5">
-              <span className="w-1.5 h-1.5 bg-amber-500 rounded-full animate-ping" />
-              Awaiting Verification Sign-off
+              <span className="w-1.5 h-1.5 bg-amber-500 rounded-full animate-ping" /> Awaiting
+              Verification Sign-off
             </p>
           </div>
-          <div className="bg-amber-50 p-2.5 rounded-lg text-base shadow-sm">WAIT</div>
+          <div className="bg-amber-50 p-2.5 rounded-lg text-base shadow-sm">â³</div>
         </div>
 
         <div className="bg-white p-4 rounded-xl border border-gray-200 shadow-sm flex items-center justify-between">
@@ -303,11 +342,11 @@ export default function ApplicationStatus({
               <span className="text-[10px] text-slate-500 font-medium">Live Sessions</span>
             </div>
             <p className="text-[10px] text-emerald-600 font-semibold flex items-center gap-1 mt-0.5">
-              <span className="w-1.5 h-1.5 bg-emerald-500 rounded-full" />
-              In Student Use / Returns Review
+              <span className="w-1.5 h-1.5 bg-emerald-500 rounded-full" /> In Student Use /
+              Returns Review
             </p>
           </div>
-          <div className="bg-emerald-50 p-2.5 rounded-lg text-base shadow-sm">LIVE</div>
+          <div className="bg-emerald-50 p-2.5 rounded-lg text-base shadow-sm">ðŸ“¦</div>
         </div>
 
         <div className="bg-white p-4 rounded-xl border border-gray-200 shadow-sm flex items-center justify-between">
@@ -322,11 +361,11 @@ export default function ApplicationStatus({
               <span className="text-[10px] text-slate-500 font-medium">Logged Logs</span>
             </div>
             <p className="text-[10px] text-indigo-600 font-semibold flex items-center gap-1 mt-0.5">
-              <span className="w-1.5 h-1.5 bg-indigo-500 rounded-full" />
-              Audited Database
+              <span className="w-1.5 h-1.5 bg-indigo-500 rounded-full" /> Unalterable Audited
+              Database
             </p>
           </div>
-          <div className="bg-indigo-50 p-2.5 rounded-lg text-base shadow-sm">ARCH</div>
+          <div className="bg-indigo-50 p-2.5 rounded-lg text-base shadow-sm">ðŸ—ƒï¸</div>
         </div>
       </div>
 
@@ -338,7 +377,7 @@ export default function ApplicationStatus({
               <div>
                 <h3 className="font-bold text-xs tracking-wide">Master Equipment Log Spreadsheet</h3>
                 <p className="text-[9px] text-slate-300">
-                  Cross-pipeline tracking by individual equipment code.
+                  Cross-pipeline tracking broken down by individual unit type codes.
                 </p>
               </div>
             </div>
@@ -353,61 +392,67 @@ export default function ApplicationStatus({
                 <tr className="bg-slate-100 border-b border-slate-200 text-slate-700 font-extrabold text-[10px] tracking-wider uppercase">
                   <th className="px-4 py-3">Equipment Code</th>
                   <th className="px-4 py-3">Classification Model</th>
-                  <th className="px-4 py-3 text-center bg-slate-50">Total Borrowed</th>
-                  <th className="px-4 py-3 text-center text-amber-700">Pending Queue</th>
-                  <th className="px-4 py-3 text-center text-blue-700">In Possession</th>
-                  <th className="px-4 py-3 text-center bg-red-50 text-red-700">Status Flags</th>
+                  <th className="px-4 py-3 text-center bg-slate-50">Total Borrowed (Times)</th>
+                  <th className="px-4 py-3 text-center text-amber-700">Is Being Borrowed (Queue)</th>
+                  <th className="px-4 py-3 text-center text-blue-700">In Student Possession</th>
+                  <th className="px-4 py-3 text-center bg-red-50 text-red-700">âš ï¸ Status Flags</th>
                   <th className="px-4 py-3 text-center bg-emerald-50 text-emerald-800">
-                    Quantity Available
+                    Available Stock
                   </th>
                 </tr>
               </thead>
               <tbody className="divide-y divide-slate-100 font-medium">
-                {inventorySpreadsheetData.map((row) => (
-                  <tr key={row.code} className="hover:bg-slate-50/80 transition-colors">
-                    <td className="px-4 py-2.5 font-mono font-bold text-red-800 text-xs">
-                      {row.code}
-                    </td>
-                    <td className="px-4 py-2.5 text-slate-800 text-[11px]">{row.name}</td>
-                    <td className="px-4 py-2.5 text-center font-bold bg-slate-50 text-slate-900">
-                      {row.totalBorrowedTimes} x
-                    </td>
-                    <td className="px-4 py-2.5 text-center font-bold text-amber-600">
-                      {row.isBeingBorrowed}
-                    </td>
-                    <td className="px-4 py-2.5 text-center font-bold text-blue-600">
-                      {row.inPossession}
-                    </td>
-                    <td className="px-4 py-2.5 text-center text-xs">
-                      {row.maintenanceStatus ? (
-                        <span className="inline-flex items-center gap-1 px-2 py-0.5 font-bold rounded-sm text-[9px] uppercase bg-red-100 text-red-700 border border-red-200">
-                          <Wrench className="w-2.5 h-2.5" /> {row.maintenanceStatus}
+                {inventorySpreadsheetData.map((row) => {
+                  const totalCap = getAssetTotalCapacity(row.code);
+                  const isMaintActive = row.maintenanceStatus !== null;
+                  const stockRemaining = isMaintActive
+                    ? 0
+                    : Math.max(0, totalCap - row.inPossession);
+
+                  return (
+                    <tr key={row.code} className="hover:bg-slate-50/80 transition-colors">
+                      <td className="px-4 py-2.5 font-mono font-bold text-red-800 text-xs">
+                        {row.code}
+                      </td>
+                      <td className="px-4 py-2.5 text-slate-800 text-[11px]">{row.name}</td>
+                      <td className="px-4 py-2.5 text-center font-bold bg-slate-50 text-slate-900">
+                        {row.totalBorrowedTimes} x
+                      </td>
+                      <td className="px-4 py-2.5 text-center font-bold text-amber-600">
+                        {row.isBeingBorrowed}
+                      </td>
+                      <td className="px-4 py-2.5 text-center font-bold text-blue-600">
+                        {row.inPossession}
+                      </td>
+                      <td className="px-4 py-2.5 text-center text-xs">
+                        {row.maintenanceStatus ? (
+                          <span className="inline-flex items-center gap-1 px-2 py-0.5 font-bold rounded-sm text-[9px] uppercase bg-red-100 text-red-700 border border-red-200">
+                            <Wrench className="w-2.5 h-2.5 animate-spin" /> {row.maintenanceStatus}
+                          </span>
+                        ) : row.overdueCount > 0 ? (
+                          <span className="inline-flex items-center gap-0.5 font-extrabold bg-red-50 text-red-600 animate-pulse">
+                            <AlertTriangle className="w-3 h-3 text-red-500" /> {row.overdueCount}{' '}
+                            OVERDUE
+                          </span>
+                        ) : (
+                          <span className="text-slate-400 font-normal text-[10px]">Normal</span>
+                        )}
+                      </td>
+                      <td className="px-4 py-2.5 text-center bg-emerald-50/50">
+                        <span
+                          className={`inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-bold ${
+                            stockRemaining > 0
+                              ? 'bg-emerald-100 text-emerald-800'
+                              : 'bg-red-100 text-red-800'
+                          }`}
+                        >
+                          <PackageCheck className="w-3 h-3" />{' '}
+                          {isMaintActive ? 'OFFLINE' : `${stockRemaining} / ${totalCap} Available`}
                         </span>
-                      ) : row.overdueCount > 0 ? (
-                        <span className="inline-flex items-center gap-0.5 font-extrabold bg-red-50 text-red-600 animate-pulse">
-                          <AlertTriangle className="w-3 h-3 text-red-500" /> {row.overdueCount}{' '}
-                          OVERDUE
-                        </span>
-                      ) : (
-                        <span className="text-slate-400 font-normal text-[10px]">Normal</span>
-                      )}
-                    </td>
-                    <td className="px-4 py-2.5 text-center bg-emerald-50/50">
-                      <span
-                        className={`inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-bold ${
-                          row.quantityAvailable > 0
-                            ? 'bg-emerald-100 text-emerald-800'
-                            : 'bg-red-100 text-red-800'
-                        }`}
-                      >
-                        <PackageCheck className="w-3 h-3" />
-                        {row.quantityAvailable > 0
-                          ? `${row.quantityAvailable} Available`
-                          : 'Unavailable'}
-                      </span>
-                    </td>
-                  </tr>
-                ))}
+                      </td>
+                    </tr>
+                  );
+                })}
               </tbody>
             </table>
           </div>
@@ -422,8 +467,9 @@ export default function ApplicationStatus({
                 Staff Verification & Blacklist Control Panel
               </h2>
               <p className="text-[11px] text-white/80 leading-relaxed">
-                Cross-reference incoming student requests, restrict non-compliant borrowers, and
-                process return checks.
+                Cross-reference incoming student request parameters below. Manually restrict access
+                values for non-compliant borrowers, analyze uploaded picture proofs, and process
+                return checks.
               </p>
             </div>
 
@@ -459,7 +505,7 @@ export default function ApplicationStatus({
               <form onSubmit={handleInstantCheck} className="space-y-2">
                 <input
                   type="text"
-                  placeholder="Enter student email..."
+                  placeholder="Enter student email (e.g. name@graduate.utm.my)..."
                   value={checkEmail}
                   onChange={(e) => setCheckEmail(e.target.value)}
                   className="w-full border border-gray-200 rounded-lg p-2 text-[11px] focus:outline-none"
@@ -469,14 +515,14 @@ export default function ApplicationStatus({
                     type="submit"
                     className="bg-red-950 text-white font-bold py-1.5 rounded-lg text-[10px]"
                   >
-                    Check Status
+                    Check Clear Status
                   </button>
                   <button
                     type="button"
                     onClick={handleToggleRestrict}
                     className="bg-gray-900 text-white font-bold py-1.5 rounded-lg text-[10px] flex items-center justify-center gap-1"
                   >
-                    <Ban className="w-3 h-3" /> Restrict
+                    <Ban className="w-3 h-3" /> Toggle Restrict
                   </button>
                 </div>
 
@@ -495,7 +541,8 @@ export default function ApplicationStatus({
             </div>
           </div>
         </div>
-      )}  
+      )}
+
       <div className="bg-white rounded-xl border border-gray-200 overflow-hidden shadow-sm">
         <div className="px-5 py-3.5 border-b border-gray-100 flex items-center gap-2 bg-gray-50/50">
           <Clock className="w-4 h-4 text-red-900" />
@@ -509,7 +556,7 @@ export default function ApplicationStatus({
             <thead>
               <tr className="bg-gray-50 border-b border-gray-200 text-gray-600 font-bold text-[11px]">
                 <th className="px-4 py-3">STUDENT DETAILS</th>
-                <th className="px-4 py-3">REQUESTED / ASSIGNED EQUIPMENT</th>
+                <th className="px-4 py-3">EQUIPMENT CODE</th>
                 <th className="px-4 py-3">BORROW TIMING PARAMETERS</th>
                 <th className="px-4 py-3 text-center">RISK STATUS</th>
                 <th className="px-4 py-3 text-center">ACTIONS</th>
@@ -541,14 +588,11 @@ export default function ApplicationStatus({
                           {details.emailAddress}
                         </div>
                         <div className="text-gray-400 text-[10px]">
-                          {details.phoneNumber} - {details.yearCourse}
+                          {details.phoneNumber} â€¢ {details.yearCourse}
                         </div>
                       </td>
-
                       <td className="px-4 py-3">
-                        <span className="text-[10px] text-gray-400 block">
-                          Original requested code
-                        </span>
+                        <span className="text-[10px] text-gray-400 block">Original requested code</span>
                         <span className="font-mono font-bold text-red-900 text-xs block">
                           {app.originalEquipmentCode || app.equipmentCode}
                         </span>
@@ -567,13 +611,13 @@ export default function ApplicationStatus({
                           )}
 
                         {app.autoRedirectNote && (
-                          <span className="text-[10px] text-amber-700 block mt-1 max-w-[240px]">
+                          <span className="text-[10px] text-amber-700 block mt-1 max-w-[220px]">
                             {app.autoRedirectNote}
                           </span>
                         )}
 
                         {app.waitingListReason && (
-                          <span className="text-[10px] text-red-600 block mt-1 max-w-[240px]">
+                          <span className="text-[10px] text-red-600 block mt-1 max-w-[220px]">
                             {app.waitingListReason}
                           </span>
                         )}
@@ -582,7 +626,6 @@ export default function ApplicationStatus({
                           {getEquipmentName(app.equipmentCode)}
                         </span>
                       </td>
-
                       <td className="px-4 py-3 space-y-0.5 text-gray-600">
                         <div>
                           Date:{' '}
@@ -597,7 +640,6 @@ export default function ApplicationStatus({
                           <span className="font-medium text-gray-900">{details.returnTime}</span>
                         </div>
                       </td>
-
                       <td className="px-4 py-3 text-center">
                         {isFlagged ? (
                           <span className="inline-flex items-center gap-1 bg-red-50 border border-red-200 text-red-700 px-2.5 py-1 rounded-full font-bold text-[10px]">
@@ -605,20 +647,18 @@ export default function ApplicationStatus({
                           </span>
                         ) : (
                           <span className="inline-flex items-center gap-1 bg-emerald-50 border border-emerald-200 text-emerald-700 px-2.5 py-1 rounded-full font-bold text-[10px]">
-                            CLEAR
+                            âœ“ CLEAR
                           </span>
                         )}
                       </td>
-
                       <td className="px-4 py-3 text-center">
                         {isStaff ? (
                           <div className="space-y-1.5">
                             {insufficientStockAppId === app.id && (
                               <div className="bg-red-50 border border-red-200 text-red-700 px-2 py-1 rounded text-[9px] font-bold animate-pulse">
-                                No alternative equipment available. Application placed in waiting list.
+                                Approval failed â€” no same-type equipment available
                               </div>
                             )}
-
                             <div className="flex items-center justify-center gap-1.5 flex-wrap">
                               <button
                                 onClick={() => handleApproveWithCascade(app.id)}
@@ -631,14 +671,12 @@ export default function ApplicationStatus({
                               >
                                 Approve Borrow
                               </button>
-
                               <button
                                 onClick={() => rejectApplication(app.id)}
                                 className="px-2.5 py-1.5 rounded-lg text-[10px] font-bold bg-amber-50 text-amber-700 border border-amber-200 hover:bg-amber-100 transition-colors inline-flex items-center gap-1"
                               >
                                 <XCircle className="w-3 h-3" /> Reject
                               </button>
-
                               <button
                                 onClick={() => setBanConfirmAppId(app.id)}
                                 className="px-2.5 py-1.5 rounded-lg text-[10px] font-bold bg-red-50 text-red-700 border border-red-300 hover:bg-red-100 transition-colors inline-flex items-center gap-1"
@@ -649,7 +687,7 @@ export default function ApplicationStatus({
                           </div>
                         ) : (
                           <span className="inline-flex items-center gap-1.5 px-2.5 py-1 text-[10px] font-bold text-orange-700 bg-orange-50 border border-orange-200 rounded-full animate-pulse">
-                            AWAITING STAFF APPROVAL
+                            AWAITING STAFF LOG
                           </span>
                         )}
                       </td>
@@ -675,13 +713,12 @@ export default function ApplicationStatus({
             <thead>
               <tr className="bg-gray-50 border-b border-gray-200 text-gray-600 font-bold text-[11px]">
                 <th className="px-4 py-3">BORROWER DETAILS</th>
-                <th className="px-4 py-3">REQUESTED / ASSIGNED EQUIPMENT</th>
-                <th className="px-4 py-3">SESSION TIMINGS</th>
-                <th className="px-4 py-3 text-center">WORKFLOW STATE</th>
+                <th className="px-4 py-3">HARDWARE CODE</th>
+                <th className="px-4 py-3">SESSION TIMINGS / PROOF DATA</th>
+                <th className="px-4 py-3 text-center">WORKFLOW REVIEW STATE</th>
                 <th className="px-4 py-3 text-center">ACTIONS</th>
               </tr>
             </thead>
-
             <tbody>
               {processedApplicationsLog.length === 0 ? (
                 <tr>
@@ -709,29 +746,18 @@ export default function ApplicationStatus({
                           {details.emailAddress}
                         </div>
                         <div className="text-slate-400 text-[10px] mt-0.5 font-medium">
-                          {details.phoneNumber}
+                          ðŸ“± {details.phoneNumber}
                         </div>
                       </td>
-
                       <td className="px-4 py-3">
-                        <span className="text-[10px] text-gray-400 block">
-                          Original requested code
-                        </span>
-                        <span className="font-mono font-bold text-gray-500 text-xs block">
-                          {app.originalEquipmentCode || app.equipmentCode}
-                        </span>
-
-                        <span className="text-[10px] text-emerald-600 block mt-1">
-                          Final assigned code
-                        </span>
-                        <span className="font-mono font-bold text-emerald-700 text-xs block">
+                        <div className="font-mono font-bold text-red-900 text-xs">
                           {app.finalEquipmentCode || app.equipmentCode}
-                        </span>
+                        </div>
 
                         {app.originalEquipmentCode &&
                           app.finalEquipmentCode &&
                           app.originalEquipmentCode !== app.finalEquipmentCode && (
-                            <div className="mt-1 text-[10px] text-amber-700 font-medium max-w-[260px]">
+                            <div className="mt-1 text-[10px] text-amber-700 font-medium max-w-[240px]">
                               Your request was approved with alternative equipment code{' '}
                               <span className="font-mono font-bold">
                                 {app.finalEquipmentCode}
@@ -743,14 +769,7 @@ export default function ApplicationStatus({
                               .
                             </div>
                           )}
-
-                        {app.autoRedirectNote && (
-                          <div className="mt-1 text-[10px] text-amber-700 font-medium max-w-[260px]">
-                            {app.autoRedirectNote}
-                          </div>
-                        )}
                       </td>
-
                       <td className="px-4 py-3 space-y-1">
                         <div className="text-[10px] text-gray-600">
                           <div>
@@ -771,19 +790,17 @@ export default function ApplicationStatus({
                           </div>
                         </div>
                       </td>
-
                       <td className="px-4 py-3 text-center">
                         {isOverdue ? (
                           <span className="inline-flex items-center gap-1 bg-red-100 border border-red-300 text-red-700 px-2 py-0.5 rounded font-black text-[9px] animate-bounce">
-                            OVERDUE CRITICAL
+                            âš ï¸ OVERDUE CRITICAL
                           </span>
                         ) : (
                           <span className="inline-flex items-center gap-1 bg-emerald-50 border border-emerald-100 text-emerald-700 px-2 py-0.5 rounded font-bold text-[9px]">
-                            IN STUDENT POSSESSION
+                            âœ“ IN STUDENT POSSESSION
                           </span>
                         )}
                       </td>
-
                       <td className="px-4 py-3">
                         {isStaff ? (
                           <div className="flex items-center justify-center gap-1.5 flex-wrap">
@@ -814,12 +831,12 @@ export default function ApplicationStatus({
                                     triggerSmsSimulationModal(
                                       details.fullName,
                                       details.phoneNumber,
-                                      app.finalEquipmentCode || app.equipmentCode
+                                      app.equipmentCode
                                     )
                                   }
                                   className="px-2 py-1.5 bg-amber-500 text-white rounded-r-lg text-[10px] font-bold"
                                 >
-                                  SMS Alert
+                                  SMS Alert ðŸ“±
                                 </button>
                               </div>
                             )}
@@ -843,7 +860,8 @@ export default function ApplicationStatus({
             </tbody>
           </table>
         </div>
-      </div
+      </div>
+
       <div className="bg-white rounded-xl border border-gray-200 overflow-hidden shadow-sm">
         <div className="px-5 py-3.5 border-b border-gray-100 flex items-center gap-2 bg-indigo-50/20">
           <Undo2 className="w-4 h-4 text-indigo-600" />
@@ -857,7 +875,7 @@ export default function ApplicationStatus({
             <thead>
               <tr className="bg-gray-50 border-b border-gray-200 text-gray-600 font-bold text-[11px]">
                 <th className="px-4 py-3">COMPLETED BORROWER</th>
-                <th className="px-4 py-3">REQUESTED / FINAL ASSET CODE</th>
+                <th className="px-4 py-3">ASSET CODE</th>
                 <th className="px-4 py-3">TIMELINE LOG SEQUENCE</th>
                 <th className="px-4 py-3 text-center">AUDIT COMPLIANCE</th>
               </tr>
@@ -895,29 +913,19 @@ export default function ApplicationStatus({
                           {details.emailAddress}
                         </div>
                       </td>
-
                       <td className="px-4 py-2.5 text-xs font-semibold text-slate-600">
-                        <span className="text-[10px] text-gray-400 block">
-                          Original requested code
-                        </span>
-                        <div className="font-mono text-gray-500">
-                          {app.originalEquipmentCode || app.equipmentCode}
-                        </div>
-
-                        <span className="text-[10px] text-emerald-600 block mt-1">
-                          Final assigned code
-                        </span>
-                        <div className="font-mono text-emerald-700 font-bold">
-                          {app.finalEquipmentCode || app.equipmentCode}
-                        </div>
-
-                        {app.autoRedirectNote && (
-                          <div className="mt-1 text-[10px] text-amber-700 font-medium max-w-[260px]">
-                            {app.autoRedirectNote}
-                          </div>
-                        )}
+                        <div className="font-mono">{app.finalEquipmentCode || app.equipmentCode}</div>
+                        {app.originalEquipmentCode &&
+                          app.finalEquipmentCode &&
+                          app.originalEquipmentCode !== app.finalEquipmentCode && (
+                            <div className="mt-1 text-[10px] text-amber-700 font-medium max-w-[220px]">
+                              Redirected from{' '}
+                              <span className="font-mono font-bold">
+                                {app.originalEquipmentCode}
+                              </span>
+                            </div>
+                          )}
                       </td>
-
                       <td className="px-4 py-2.5 text-[10px] space-y-0.5">
                         <div>
                           Borrowed:{' '}
@@ -934,7 +942,6 @@ export default function ApplicationStatus({
                           </span>
                         </div>
                       </td>
-
                       <td className="px-4 py-2.5 text-center">
                         {isBanned ? (
                           <span className="inline-flex items-center gap-1 bg-red-100 border border-red-200 text-red-700 px-2 py-0.5 rounded font-bold text-[9px]">
@@ -965,7 +972,7 @@ export default function ApplicationStatus({
                 onClick={() => setActiveReturnAppId(null)}
                 className="text-white font-bold text-sm"
               >
-                x
+                âœ•
               </button>
             </div>
 
@@ -1006,12 +1013,7 @@ export default function ApplicationStatus({
                 <label className="border border-dashed border-gray-300 rounded-lg p-3 flex items-center justify-center gap-2 text-gray-500 text-[10px] font-bold cursor-pointer hover:bg-gray-50">
                   <UploadCloud className="w-4 h-4" />
                   Upload Return Proof
-                  <input
-                    type="file"
-                    accept="image/*"
-                    onChange={handleImageUpload}
-                    className="hidden"
-                  />
+                  <input type="file" accept="image/*" onChange={handleImageUpload} className="hidden" />
                 </label>
                 {returnForm.equipmentImage && (
                   <img
@@ -1061,10 +1063,9 @@ export default function ApplicationStatus({
                 onClick={() => setSmsNotificationPayload(null)}
                 className="text-white font-bold text-sm"
               >
-                x
+                âœ•
               </button>
             </div>
-
             <div className="p-4 space-y-3">
               <div className="bg-slate-50 border border-slate-100 rounded-lg p-2.5 font-mono text-[10px]">
                 <div>
@@ -1083,7 +1084,6 @@ export default function ApplicationStatus({
                   </p>
                 </div>
               </div>
-
               <div className="flex gap-2">
                 <button
                   type="button"
@@ -1115,7 +1115,6 @@ export default function ApplicationStatus({
               <Ban className="w-4 h-4" />
               <h3 className="font-bold text-xs tracking-wide">Confirm Student Ban</h3>
             </div>
-
             <div className="p-4 space-y-3">
               <p className="text-sm text-gray-700 font-medium">
                 Are you sure you want to ban this student from borrowing equipment?
@@ -1125,7 +1124,6 @@ export default function ApplicationStatus({
                 pending queue, and prevent future borrow submissions. The record will be archived
                 for audit purposes.
               </p>
-
               <div className="flex gap-2">
                 <button
                   type="button"
@@ -1173,7 +1171,7 @@ export default function ApplicationStatus({
               onClick={() => setBanToast(null)}
               className="ml-2 text-red-400 hover:text-white font-bold text-sm"
             >
-              x
+              âœ•
             </button>
           </div>
         </div>
