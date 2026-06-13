@@ -336,10 +336,11 @@ export function AppProvider({ children }: { children: ReactNode }) {
 
       const { error } = await supabase.from('applications').insert(row);
 
-      if (error) {
-        console.error('Submit application failed:', error);
-        return false;
-      }
+     if (error) {
+  console.error('Submit application failed:', error);
+  alert(`Submit failed: ${error.message}`);
+  return false;
+}
 
       await fetchAllData();
       return true;
