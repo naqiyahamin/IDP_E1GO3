@@ -19,15 +19,13 @@ export type EquipmentStatus =
   | 'BROKEN'
   | 'CALIBRATING';
 
-export type AppStatus = 'PENDING' | 'APPROVED' | 'REJECTED' | 'RETURNED' | 'BANNED';
-
-export interface ApprovalResult {
-  status: 'approved' | 'waiting_list' | 'ignored';
-  message: string;
-  originalEquipmentCode?: string;
-  finalEquipmentCode?: string;
-  autoRedirectNote?: string;
-}
+export type AppStatus =
+  | 'PENDING'
+  | 'APPROVED'
+  | 'REJECTED'
+  | 'RETURNED'
+  | 'BANNED'
+  | 'WAITING_LIST';
 
 export interface ReturnDetailsData {
   dateReturned: string;
@@ -57,13 +55,13 @@ export interface HistoryEntry {
 export interface OscilloscopeRow {
   no: number;
   code: string;
-  equipmentName: string;
-  equipmentType: string;
-  quantityAvailable: number;
   lastDateUsed: string;
   labLocation: string;
   status: EquipmentStatus;
   verificationBy: string;
+  equipmentName?: string;
+  equipmentType?: string;
+  quantityAvailable?: number;
 }
 
 export interface Application {
@@ -81,7 +79,7 @@ export interface Application {
   photoAttachment?: string;
   processedAt?: string;
   returnDetails?: ReturnDetailsData;
-  stage: 'PENDING' | 'ACTIVE_BORROW' | 'HISTORICAL' | 'RETURN_PENDING' | 'BANNED';
+  stage: 'PENDING' | 'ACTIVE_BORROW' | 'HISTORICAL' | 'RETURN_PENDING' | 'BANNED' | 'WAITING_LIST';
   isApproved: boolean;
   isReturned: boolean;
   isReturnVerified: boolean;
@@ -106,7 +104,7 @@ interface AppState {
     equipmentCode: string,
     photoAttachment?: string
   ) => Promise<boolean>;
-  approveApplication: (appId: string) => Promise<ApprovalResult>;
+  approveApplication: (appId: string) => Promise<void>;
   rejectApplication: (appId: string) => Promise<void>;
   banApplication: (appId: string) => Promise<void>;
   submitReturnRequest: (appId: string, returnData: ReturnDetailsData) => Promise<void>;
@@ -123,8 +121,7 @@ function getEquipmentName(code: string): string {
   if (code.startsWith('ARD')) return 'Arduino Uno';
   if (code.startsWith('ESP')) return 'ESP32 Microcontroller';
   if (code.startsWith('MXW')) return 'Regulated DC Power Supply';
-  if (code.startsWith('RFE')) return 'RF Spectrum Analyzer';
-  return 'General Equipment';
+  return 'Digital Oscilloscope';
 }
 
 function getEquipmentTypeKey(code: string): string {
@@ -132,23 +129,67 @@ function getEquipmentTypeKey(code: string): string {
   return match ? match[0].toUpperCase() : code.slice(0, 3).toUpperCase();
 }
 
+function normalizeStatus(status: unknown): AppStatus {
+  const value = String(status || 'PENDING').toUpperCase().replace(/\s+/g, '_');
+
+  if (
+    value === 'PENDING' ||
+    value === 'APPROVED' ||
+    value === 'REJECTED' ||
+    value === 'RETURNED' ||
+    value === 'BANNED' ||
+    value === 'WAITING_LIST'
+  ) {
+    return value;
+  }
+
+  return 'PENDING';
+}
+
+function normalizeStage(stage: unknown): Application['stage'] {
+  const value = String(stage || 'PENDING').toUpperCase().replace(/\s+/g, '_');
+
+  if (
+    value === 'PENDING' ||
+    value === 'ACTIVE_BORROW' ||
+    value === 'HISTORICAL' ||
+    value === 'RETURN_PENDING' ||
+    value === 'BANNED' ||
+    value === 'WAITING_LIST'
+  ) {
+    return value;
+  }
+
+  return 'PENDING';
+}
+
 function dbRowToApplication(row: Record<string, unknown>): Application {
+  const originalEquipmentCode =
+    (row.original_equipment_code as string) ||
+    (row.equipment_code as string) ||
+    '';
+
+  const finalEquipmentCode =
+    (row.final_equipment_code as string) ||
+    (row.equipment_code as string) ||
+    '';
+
   return {
     id: row.id as string,
-    equipmentCode: row.equipment_code as string,
-    originalEquipmentCode: (row.original_equipment_code as string) || undefined,
-    finalEquipmentCode: (row.final_equipment_code as string) || undefined,
+    equipmentCode: finalEquipmentCode,
+    originalEquipmentCode,
+    finalEquipmentCode,
     autoRedirectNote: (row.auto_redirect_note as string) || undefined,
     waitingListReason: (row.waiting_list_reason as string) || undefined,
     equipmentType: (row.equipment_type as string) || undefined,
-    submittedAt: row.submitted_at as string,
-    isBlacklisted: row.is_blacklisted as boolean,
-    status: row.status as AppStatus,
+    submittedAt: (row.submitted_at as string) || '',
+    isBlacklisted: Boolean(row.is_blacklisted),
+    status: normalizeStatus(row.status),
     photoAttachment: (row.photo_attachment as string) || undefined,
-    stage: row.stage as Application['stage'],
-    isApproved: row.is_approved as boolean,
-    isReturned: row.is_returned as boolean,
-    isReturnVerified: row.is_return_verified as boolean,
+    stage: normalizeStage(row.stage),
+    isApproved: Boolean(row.is_approved),
+    isReturned: Boolean(row.is_returned),
+    isReturnVerified: Boolean(row.is_return_verified),
     approvedAt: (row.approved_at as string) || undefined,
     processedAt: (row.processed_at as string) || undefined,
     returnSubmittedAt: (row.return_submitted_at as string) || undefined,
@@ -162,58 +203,50 @@ function dbRowToApplication(row: Record<string, unknown>): Application {
           }
         : undefined,
     formData: {
-      fullName: row.student_name as string,
-      emailAddress: row.student_email as string,
-      phoneNumber: row.student_phone as string,
-      yearCourse: row.student_year_course as string,
-      dateBorrow: row.borrow_date as string,
-      duration: row.duration as string,
-      returnTime: row.return_target as string,
+      fullName: (row.student_name as string) || '',
+      emailAddress: (row.student_email as string) || '',
+      phoneNumber: (row.student_phone as string) || '',
+      yearCourse: (row.student_year_course as string) || '',
+      dateBorrow: (row.borrow_date as string) || '',
+      duration: (row.duration as string) || '',
+      returnTime: (row.return_target as string) || '',
     },
   };
 }
 
 function dbRowToEquipment(row: Record<string, unknown>): OscilloscopeRow {
-  const code = row.code as string;
-  const status = row.status as EquipmentStatus;
-
   return {
-    no: row.no as number,
-    code,
-    equipmentName: (row.equipment_name as string) || getEquipmentName(code),
-    equipmentType: (row.equipment_type as string) || getEquipmentTypeKey(code),
-    quantityAvailable:
-      typeof row.quantity_available === 'number'
-        ? row.quantity_available
-        : status === 'AVAILABLE'
-          ? 1
-          : 0,
-    lastDateUsed: row.last_date_used as string,
-    labLocation: row.lab_location as string,
-    status,
-    verificationBy: row.verification_by as string,
+    no: Number(row.no || 0),
+    code: String(row.code || ''),
+    lastDateUsed: String(row.last_date_used || ''),
+    labLocation: String(row.lab_location || ''),
+    status: String(row.status || 'AVAILABLE') as EquipmentStatus,
+    verificationBy: String(row.verification_by || ''),
+    equipmentName: String(row.equipment_name || ''),
+    equipmentType: String(row.equipment_type || ''),
+    quantityAvailable: Number(row.quantity_available ?? 0),
   };
 }
 
 function dbRowToInventory(row: Record<string, unknown>): ComponentType {
   return {
-    name: row.name as string,
-    totalUnits: row.total_units as number,
-    unitsOut: row.units_out as number,
-    unitsOnShelf: row.units_on_shelf as number,
+    name: String(row.name || ''),
+    totalUnits: Number(row.total_units || 0),
+    unitsOut: Number(row.units_out || 0),
+    unitsOnShelf: Number(row.units_on_shelf || 0),
   };
 }
 
 function dbRowToHistory(row: Record<string, unknown>): HistoryEntry {
   return {
-    equipmentCode: row.equipment_code as string,
-    componentType: row.component_type as string,
-    studentName: row.student_name as string,
-    studentEmail: row.student_email as string,
-    borrowDate: row.borrow_date as string,
-    returnDueTime: row.return_due_time as string,
-    borrowTimestamp: row.borrow_timestamp as string,
-    status: row.status as HistoryEntry['status'],
+    equipmentCode: String(row.equipment_code || ''),
+    componentType: String(row.component_type || ''),
+    studentName: String(row.student_name || ''),
+    studentEmail: String(row.student_email || ''),
+    borrowDate: String(row.borrow_date || ''),
+    returnDueTime: String(row.return_due_time || ''),
+    borrowTimestamp: String(row.borrow_timestamp || ''),
+    status: String(row.status || 'ACTIVE') as HistoryEntry['status'],
     returnedDate: (row.returned_date as string) || undefined,
   };
 }
@@ -227,6 +260,8 @@ export function AppProvider({ children }: { children: ReactNode }) {
   const [loading, setLoading] = useState(true);
 
   const fetchAllData = useCallback(async () => {
+    setLoading(true);
+
     const [appsRes, equipRes, invRes, blackRes, histRes] = await Promise.all([
       supabase.from('applications').select('*').order('submitted_at', { ascending: true }),
       supabase.from('equipment_rows').select('*').order('no', { ascending: true }),
@@ -234,6 +269,12 @@ export function AppProvider({ children }: { children: ReactNode }) {
       supabase.from('blacklisted_emails').select('email'),
       supabase.from('transaction_history').select('*').order('borrow_timestamp', { ascending: true }),
     ]);
+
+    if (appsRes.error) console.error('Failed to fetch applications:', appsRes.error);
+    if (equipRes.error) console.error('Failed to fetch equipment rows:', equipRes.error);
+    if (invRes.error) console.error('Failed to fetch component inventory:', invRes.error);
+    if (blackRes.error) console.error('Failed to fetch blacklist:', blackRes.error);
+    if (histRes.error) console.error('Failed to fetch transaction history:', histRes.error);
 
     if (appsRes.data) setApplicationQueue(appsRes.data.map(dbRowToApplication));
     if (equipRes.data) setEquipmentRows(equipRes.data.map(dbRowToEquipment));
@@ -272,16 +313,19 @@ export function AppProvider({ children }: { children: ReactNode }) {
   }, [fetchAllData]);
 
   const updateEquipmentStatus = useCallback((code: string, newStatus: EquipmentStatus) => {
-    const quantityAvailable = newStatus === 'AVAILABLE' ? 1 : 0;
-
     supabase
       .from('equipment_rows')
       .update({
         status: newStatus,
-        quantity_available: quantityAvailable,
+        quantity_available: newStatus === 'AVAILABLE' ? 1 : 0,
       })
       .eq('code', code)
-      .then();
+      .then(({ error }) => {
+        if (error) {
+          console.error('Update equipment status failed:', error);
+          alert(`Update equipment failed: ${error.message}`);
+        }
+      });
   }, []);
 
   const toggleBlacklistUser = useCallback(
@@ -289,9 +333,13 @@ export function AppProvider({ children }: { children: ReactNode }) {
       const targetEmail = email.toLowerCase().trim();
 
       if (blacklistedEmails.includes(targetEmail)) {
-        supabase.from('blacklisted_emails').delete().eq('email', targetEmail).then();
+        supabase.from('blacklisted_emails').delete().eq('email', targetEmail).then(({ error }) => {
+          if (error) alert(`Remove blacklist failed: ${error.message}`);
+        });
       } else {
-        supabase.from('blacklisted_emails').upsert({ email: targetEmail }).then();
+        supabase.from('blacklisted_emails').upsert({ email: targetEmail }).then(({ error }) => {
+          if (error) alert(`Blacklist failed: ${error.message}`);
+        });
       }
     },
     [blacklistedEmails]
@@ -304,6 +352,8 @@ export function AppProvider({ children }: { children: ReactNode }) {
       photoAttachment?: string
     ): Promise<boolean> => {
       const studentEmail = formData.emailAddress.toLowerCase().trim();
+      const requestedEquipmentName = getEquipmentName(equipmentCode);
+      const requestedEquipmentType = getEquipmentTypeKey(equipmentCode);
 
       if (blacklistedEmails.includes(studentEmail)) {
         alert('This student account has been banned from borrowing equipment.');
@@ -316,8 +366,8 @@ export function AppProvider({ children }: { children: ReactNode }) {
         student_phone: formData.phoneNumber,
         student_year_course: formData.yearCourse,
         equipment_code: equipmentCode,
-        equipment_name: getEquipmentName(equipmentCode),
-        equipment_type: getEquipmentTypeKey(equipmentCode),
+        equipment_name: requestedEquipmentName,
+        equipment_type: requestedEquipmentType,
         original_equipment_code: equipmentCode,
         final_equipment_code: null,
         auto_redirect_note: null,
@@ -338,6 +388,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
 
       if (error) {
         console.error('Submit application failed:', error);
+        alert(`Submit failed: ${error.message}`);
         return false;
       }
 
@@ -348,19 +399,192 @@ export function AppProvider({ children }: { children: ReactNode }) {
   );
 
   const approveApplication = useCallback(
-    async (appId: string): Promise<ApprovalResult> => {
-      const { data, error } = await supabase.rpc('approve_application_with_redirect', {
-        p_app_id: appId,
-      });
+    async (appId: string) => {
+      const { data: rpcResult, error: rpcError } = await supabase.rpc(
+        'approve_application_with_redirect',
+        { p_app_id: appId }
+      );
 
-      if (error) {
-        console.error('Approve application failed:', error);
-        throw error;
+      if (!rpcError && rpcResult) {
+        const result = rpcResult as {
+          success?: boolean;
+          waiting_list?: boolean;
+          message?: string;
+          old_code?: string;
+          new_code?: string;
+          note?: string;
+        };
+
+        if (result.waiting_list) {
+          alert(result.message || 'No alternative equipment available. Application placed in waiting list.');
+        } else if (result.note) {
+          alert(result.note);
+        }
+
+        await fetchAllData();
+        return;
       }
 
-      await fetchAllData();
+      console.warn('RPC approve_application_with_redirect unavailable, using frontend fallback:', rpcError);
 
-      return data as ApprovalResult;
+      const now = new Date().toISOString();
+
+      const { data: target, error: targetError } = await supabase
+        .from('applications')
+        .select('*')
+        .eq('id', appId)
+        .single();
+
+      if (targetError || !target) {
+        console.error('Application not found:', targetError);
+        alert(`Application not found: ${targetError?.message || 'Unknown error'}`);
+        return;
+      }
+
+      const requestedCode = String(target.original_equipment_code || target.equipment_code || '');
+      const requestedTypeKey = String(target.equipment_type || getEquipmentTypeKey(requestedCode));
+      const equipmentName = String(target.equipment_name || getEquipmentName(requestedCode));
+
+      const { data: equipmentList, error: equipmentError } = await supabase
+        .from('equipment_rows')
+        .select('*')
+        .order('no', { ascending: true });
+
+      if (equipmentError || !equipmentList) {
+        console.error('Unable to check equipment availability:', equipmentError);
+        alert(`Unable to check equipment availability: ${equipmentError?.message || 'Unknown error'}`);
+        return;
+      }
+
+      const requestedEquipment = equipmentList.find(
+        (item: Record<string, unknown>) => String(item.code) === requestedCode
+      );
+
+      let finalEquipmentCode = requestedCode;
+      let autoRedirectNote: string | null = null;
+
+      if (!requestedEquipment || requestedEquipment.status !== 'AVAILABLE') {
+        const alternativeEquipment = equipmentList.find((item: Record<string, unknown>) => {
+          const code = String(item.code || '');
+          const status = String(item.status || '');
+          const type = String(item.equipment_type || getEquipmentTypeKey(code));
+          const name = String(item.equipment_name || getEquipmentName(code));
+
+          return (
+            code !== requestedCode &&
+            status === 'AVAILABLE' &&
+            (type === requestedTypeKey || name === equipmentName)
+          );
+        });
+
+        if (!alternativeEquipment) {
+          const waitingMessage = 'No alternative equipment available. Application placed in waiting list.';
+
+          const { error: waitError } = await supabase
+            .from('applications')
+            .update({
+              status: 'WAITING_LIST',
+              stage: 'WAITING_LIST',
+              waiting_list_reason: waitingMessage,
+            })
+            .eq('id', appId);
+
+          if (waitError) {
+            console.error('Waiting list update failed:', waitError);
+            alert(`Waiting list update failed: ${waitError.message}`);
+            return;
+          }
+
+          alert(waitingMessage);
+          await fetchAllData();
+          return;
+        }
+
+        finalEquipmentCode = String(alternativeEquipment.code || '');
+        autoRedirectNote = `Auto-redirected from ${requestedCode} to ${finalEquipmentCode} because original equipment was unavailable.`;
+      }
+
+      const { data: activeBorrowSameCode } = await supabase
+        .from('applications')
+        .select('id')
+        .neq('id', appId)
+        .eq('equipment_code', finalEquipmentCode)
+        .eq('stage', 'ACTIVE_BORROW');
+
+      if (activeBorrowSameCode && activeBorrowSameCode.length > 0) {
+        alert('This equipment has just been borrowed. Please approve again to auto-redirect.');
+        return;
+      }
+
+      const { data: invItem } = await supabase
+        .from('component_inventory')
+        .select('*')
+        .eq('name', equipmentName)
+        .maybeSingle();
+
+      const unitsOut = Number(invItem?.units_out ?? 0);
+      const unitsOnShelf = Number(invItem?.units_on_shelf ?? 0);
+
+      const updateApplicationData: Record<string, unknown> = {
+        equipment_code: finalEquipmentCode,
+        equipment_name: getEquipmentName(finalEquipmentCode),
+        equipment_type: getEquipmentTypeKey(finalEquipmentCode),
+        original_equipment_code: requestedCode,
+        final_equipment_code: finalEquipmentCode,
+        auto_redirect_note: autoRedirectNote,
+        waiting_list_reason: null,
+        status: 'APPROVED',
+        stage: 'ACTIVE_BORROW',
+        is_approved: true,
+        approved_at: now,
+        processed_at: now,
+      };
+
+      const { error: approveError } = await supabase
+        .from('applications')
+        .update(updateApplicationData)
+        .eq('id', appId);
+
+      if (approveError) {
+        console.error('Approve application failed:', approveError);
+        alert(`Approve failed: ${approveError.message}`);
+        return;
+      }
+
+      const updates = [
+        supabase
+          .from('equipment_rows')
+          .update({
+            status: 'BORROWED',
+            quantity_available: 0,
+          })
+          .eq('code', finalEquipmentCode),
+      ];
+
+      if (invItem) {
+        updates.push(
+          supabase
+            .from('component_inventory')
+            .update({
+              units_out: unitsOut + 1,
+              units_on_shelf: Math.max(0, unitsOnShelf - 1),
+            })
+            .eq('name', equipmentName)
+        );
+      }
+
+      const updateResults = await Promise.all(updates);
+      const failedUpdate = updateResults.find((result) => result.error);
+
+      if (failedUpdate?.error) {
+        console.error('Post-approve update failed:', failedUpdate.error);
+        alert(`Post-approve update failed: ${failedUpdate.error.message}`);
+        return;
+      }
+
+      if (autoRedirectNote) alert(autoRedirectNote);
+
+      await fetchAllData();
     },
     [fetchAllData]
   );
@@ -378,6 +602,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
 
       if (error) {
         console.error('Reject application failed:', error);
+        alert(`Reject failed: ${error.message}`);
         return;
       }
 
@@ -396,12 +621,13 @@ export function AppProvider({ children }: { children: ReactNode }) {
 
       if (targetError || !target) {
         console.error('Ban application failed:', targetError);
+        alert(`Ban failed: ${targetError?.message || 'Application not found'}`);
         return;
       }
 
       const studentEmail = String(target.student_email || '').toLowerCase().trim();
 
-      await Promise.all([
+      const [appUpdate, blacklistUpdate] = await Promise.all([
         supabase
           .from('applications')
           .update({
@@ -414,6 +640,12 @@ export function AppProvider({ children }: { children: ReactNode }) {
         supabase.from('blacklisted_emails').upsert({ email: studentEmail }),
       ]);
 
+      if (appUpdate.error || blacklistUpdate.error) {
+        const message = appUpdate.error?.message || blacklistUpdate.error?.message || 'Unknown error';
+        alert(`Ban failed: ${message}`);
+        return;
+      }
+
       await fetchAllData();
     },
     [fetchAllData]
@@ -421,17 +653,20 @@ export function AppProvider({ children }: { children: ReactNode }) {
 
   const submitReturnRequest = useCallback(
     async (appId: string, returnData: ReturnDetailsData) => {
-      const { data: target } = await supabase
+      const { data: target, error: targetError } = await supabase
         .from('applications')
         .select('equipment_code')
         .eq('id', appId)
         .single();
 
-      if (!target) return;
+      if (targetError || !target) {
+        alert(`Return request failed: ${targetError?.message || 'Application not found'}`);
+        return;
+      }
 
-      const equipmentCode = target.equipment_code as string;
+      const equipmentCode = String(target.equipment_code || '');
 
-      await Promise.all([
+      const [appUpdate, equipmentUpdate] = await Promise.all([
         supabase
           .from('applications')
           .update({
@@ -445,12 +680,15 @@ export function AppProvider({ children }: { children: ReactNode }) {
           .eq('id', appId),
         supabase
           .from('equipment_rows')
-          .update({
-            status: 'RETURN_PENDING',
-            quantity_available: 0,
-          })
+          .update({ status: 'RETURN_PENDING' })
           .eq('code', equipmentCode),
       ]);
+
+      if (appUpdate.error || equipmentUpdate.error) {
+        const message = appUpdate.error?.message || equipmentUpdate.error?.message || 'Unknown error';
+        alert(`Return request failed: ${message}`);
+        return;
+      }
 
       await fetchAllData();
     },
@@ -459,24 +697,27 @@ export function AppProvider({ children }: { children: ReactNode }) {
 
   const approveReturnRequest = useCallback(
     async (appId: string) => {
-      const { data: target } = await supabase
+      const { data: target, error: targetError } = await supabase
         .from('applications')
         .select('*')
         .eq('id', appId)
         .single();
 
-      if (!target) return;
+      if (targetError || !target) {
+        alert(`Approve return failed: ${targetError?.message || 'Application not found'}`);
+        return;
+      }
 
-      const equipmentCode = target.equipment_code as string;
-      const equipmentName = (target.equipment_name as string) || getEquipmentName(equipmentCode);
+      const equipmentCode = String(target.equipment_code || '');
+      const equipmentName = String(target.equipment_name || getEquipmentName(equipmentCode));
 
       const { data: invItem } = await supabase
         .from('component_inventory')
         .select('*')
         .eq('name', equipmentName)
-        .single();
+        .maybeSingle();
 
-      await Promise.all([
+      const updates = [
         supabase
           .from('applications')
           .update({
@@ -496,13 +737,6 @@ export function AppProvider({ children }: { children: ReactNode }) {
               target.return_date_returned || new Date().toISOString().split('T')[0],
           })
           .eq('code', equipmentCode),
-        supabase
-          .from('component_inventory')
-          .update({
-            units_out: Math.max(0, ((invItem?.units_out as number | undefined) ?? 1) - 1),
-            units_on_shelf: ((invItem?.units_on_shelf as number | undefined) ?? 0) + 1,
-          })
-          .eq('name', equipmentName),
         supabase.from('transaction_history').insert({
           equipment_code: equipmentCode,
           component_type: equipmentName,
@@ -515,7 +749,27 @@ export function AppProvider({ children }: { children: ReactNode }) {
           returned_date:
             target.return_date_returned || new Date().toISOString().split('T')[0],
         }),
-      ]);
+      ];
+
+      if (invItem) {
+        updates.push(
+          supabase
+            .from('component_inventory')
+            .update({
+              units_out: Math.max(0, Number(invItem.units_out ?? 1) - 1),
+              units_on_shelf: Number(invItem.units_on_shelf ?? 0) + 1,
+            })
+            .eq('name', equipmentName)
+        );
+      }
+
+      const results = await Promise.all(updates);
+      const failedUpdate = results.find((result) => result.error);
+
+      if (failedUpdate?.error) {
+        alert(`Approve return failed: ${failedUpdate.error.message}`);
+        return;
+      }
 
       await fetchAllData();
     },
@@ -534,7 +788,10 @@ export function AppProvider({ children }: { children: ReactNode }) {
   const incomingVerificationQueue = useMemo(
     () =>
       applicationQueue.filter(
-        (app) => app.stage === 'PENDING' || app.stage === 'RETURN_PENDING'
+        (app) =>
+          app.stage === 'PENDING' ||
+          app.stage === 'RETURN_PENDING' ||
+          app.stage === 'WAITING_LIST'
       ),
     [applicationQueue]
   );
@@ -545,7 +802,10 @@ export function AppProvider({ children }: { children: ReactNode }) {
   );
 
   const historicalLedger = useMemo(
-    () => applicationQueue.filter((app) => app.stage === 'HISTORICAL' || app.stage === 'BANNED'),
+    () =>
+      applicationQueue.filter(
+        (app) => app.stage === 'HISTORICAL' || app.stage === 'BANNED'
+      ),
     [applicationQueue]
   );
 
