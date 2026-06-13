@@ -843,7 +843,7 @@ export default function ApplicationStatus({
             </tbody>
           </table>
         </div>
-      </div
+      </div>
       <div className="bg-white rounded-xl border border-gray-200 overflow-hidden shadow-sm">
         <div className="px-5 py-3.5 border-b border-gray-100 flex items-center gap-2 bg-indigo-50/20">
           <Undo2 className="w-4 h-4 text-indigo-600" />
