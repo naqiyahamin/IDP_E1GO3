@@ -19,10 +19,6 @@ export interface BorrowFormData {
   emailAddress: string;
 }
 
-function normalizeIdentity(value: string): string {
-  return value.toUpperCase().replace(/[^A-Z0-9]/g, '');
-}
-
 const VALIDATORS: Record<keyof BorrowFormData, (v: string, context?: string) => string | null> = {
   fullName: (v, emailAddress = '') => {
     if (!v.trim()) return 'Required';
@@ -365,7 +361,7 @@ export default function BorrowForm({
               placeholder="name@graduate.utm.my"
             />
             <p className="text-[10px] text-emerald-600 mt-1 font-medium">
-              Locked to your active authenticated student session credentials.
+              ✓ Locked to your active authenticated student session credentials.
             </p>
           </div>
 

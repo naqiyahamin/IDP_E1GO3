@@ -14,7 +14,7 @@ import TinkerIoTSimulator from '../components/TinkerIoTSimulator';
 import { useAppState, type EquipmentStatus, type Application } from '../context';
 import type { UserRole } from '../auth';
 
-const statusBadge: Record<string, string> = {
+const statusBadge: Record<EquipmentStatus, string> = {
   AVAILABLE: 'bg-emerald-50 text-emerald-700 border-emerald-200',
   'PENDING PICKUP': 'bg-orange-50 text-orange-700 border-orange-200',
   BORROWED: 'bg-red-50 text-red-700 border-red-200',
@@ -23,7 +23,7 @@ const statusBadge: Record<string, string> = {
   CALIBRATING: 'bg-orange-100 text-orange-800 border-orange-300',
 };
 
-const statusDot: Record<string, string> = {
+const statusDot: Record<EquipmentStatus, string> = {
   AVAILABLE: 'bg-emerald-500',
   'PENDING PICKUP': 'bg-orange-500',
   BORROWED: 'bg-red-500',
@@ -36,32 +36,6 @@ interface EquipmentAvailabilityProps {
   userRole: UserRole;
   currentUserEmail: string;
   onSuccessRedirect?: () => void;
-}
-
-function normalizeEquipmentStatus(status: unknown): EquipmentStatus {
-  const value = String(status || 'AVAILABLE').trim().toUpperCase().replace(/_/g, ' ');
-
-  if (value === 'AVAILABLE') return 'AVAILABLE';
-  if (value === 'PENDING PICKUP') return 'PENDING PICKUP';
-  if (value === 'BORROWED') return 'BORROWED';
-  if (value === 'RETURN PENDING') return 'RETURN_PENDING';
-  if (value === 'BROKEN') return 'BROKEN';
-  if (value === 'CALIBRATING') return 'CALIBRATING';
-
-  return 'AVAILABLE';
-}
-
-function getEquipmentNameFromCode(code: string): string {
-  if (code.startsWith('AGT')) return 'Digital Oscilloscope';
-  if (code.startsWith('ARD')) return 'Arduino Uno';
-  if (code.startsWith('ESP')) return 'ESP32 Microcontroller';
-  if (code.startsWith('MXW')) return 'Regulated DC Power Supply';
-  return 'Digital Oscilloscope';
-}
-
-function getEquipmentTypeFromCode(code: string): string {
-  const match = code.match(/^[A-Za-z]+/);
-  return match ? match[0].toUpperCase() : code.slice(0, 3).toUpperCase();
 }
 
 export function EquipmentAvailability({
@@ -80,17 +54,12 @@ export function EquipmentAvailability({
   const [borrowTarget, setBorrowTarget] = useState<string | null>(null);
   const [activePreviewImage, setActivePreviewImage] = useState<string | null>(null);
 
-  const normalizedRows = equipmentRows.map((row) => ({
-    ...row,
-    status: normalizeEquipmentStatus(row.status),
-  }));
-
-  const availableCount = normalizedRows.filter((r) => r.status === 'AVAILABLE').length;
-  const pendingCount = normalizedRows.filter(
+  const availableCount = equipmentRows.filter((r) => r.status === 'AVAILABLE').length;
+  const pendingCount = equipmentRows.filter(
     (r) => r.status === 'PENDING PICKUP' || r.status === 'RETURN_PENDING'
   ).length;
-  const borrowedCount = normalizedRows.filter((r) => r.status === 'BORROWED').length;
-  const maintenanceCount = normalizedRows.filter(
+  const borrowedCount = equipmentRows.filter((r) => r.status === 'BORROWED').length;
+  const maintenanceCount = equipmentRows.filter(
     (r) => r.status === 'BROKEN' || r.status === 'CALIBRATING'
   ).length;
 
@@ -110,10 +79,8 @@ export function EquipmentAvailability({
     return success;
   };
 
-  const agt567Status = normalizedRows.find((r) => r.code === 'AGT567')?.status ?? 'AVAILABLE';
-  const isStudent =
-  String(userRole || '').trim().toLowerCase() === 'student' ||
-  String(currentUserEmail || '').trim().toLowerCase().endsWith('@graduate.utm.my');
+  const agt567Status = equipmentRows.find((r) => r.code === 'AGT567')?.status ?? 'AVAILABLE';
+  const isStudent = userRole === 'student';
 
   if (borrowTarget && isStudent) {
     return (
@@ -246,18 +213,7 @@ export function EquipmentAvailability({
               </thead>
 
               <tbody>
-                {normalizedRows.map((row) => {
-                  const rowStatus = normalizeEquipmentStatus(row.status);
-                  const isAvailable = rowStatus === 'AVAILABLE';
-                  const isMaintenance = rowStatus === 'BROKEN' || rowStatus === 'CALIBRATING';
-                  const quantityAvailable =
-                    typeof row.quantityAvailable === 'number'
-                      ? row.quantityAvailable
-                      : isAvailable
-                        ? 1
-                        : 0;
-
-                  return (
+                {equipmentRows.map((row) => (
                   <tr
                     key={row.code}
                     className={`border-b border-gray-100 transition-colors ${
@@ -271,13 +227,13 @@ export function EquipmentAvailability({
                       {row.code}
                     </td>
                     <td className="px-4 py-3 text-gray-700 text-xs font-semibold">
-                      {row.equipmentName || getEquipmentNameFromCode(row.code)}
+                      {row.equipmentName}
                     </td>
                     <td className="px-4 py-3 text-gray-500 text-xs font-mono">
-                      {row.equipmentType || getEquipmentTypeFromCode(row.code)}
+                      {row.equipmentType}
                     </td>
                     <td className="px-4 py-3 text-center text-xs font-bold">
-                      {quantityAvailable}
+                      {row.quantityAvailable}
                     </td>
                     <td className="px-4 py-3 text-gray-600 text-xs">
                       {row.lastDateUsed}
@@ -288,33 +244,34 @@ export function EquipmentAvailability({
                     <td className="px-4 py-3 text-center">
                       <span
                         className={`inline-flex items-center gap-1.5 text-[10px] font-bold px-2.5 py-1 rounded-full border ${
-                          statusBadge[rowStatus] ?? 'bg-gray-50 text-gray-600 border-gray-200'
+                          statusBadge[row.status] ?? 'bg-gray-50 text-gray-600 border-gray-200'
                         }`}
                       >
                         <span
                           className={`w-1.5 h-1.5 rounded-full ${
-                            statusDot[rowStatus] ?? 'bg-gray-400'
+                            statusDot[row.status] ?? 'bg-gray-400'
                           }`}
                         />
-                        {rowStatus === 'PENDING PICKUP'
+                        {row.status === 'PENDING PICKUP'
                           ? 'PENDING APPROVAL'
-                          : rowStatus === 'BROKEN' || rowStatus === 'CALIBRATING'
+                          : row.status === 'BROKEN' || row.status === 'CALIBRATING'
                             ? 'MAINTENANCE'
-                            : rowStatus}
+                            : row.status}
                       </span>
                     </td>
                     <td className="px-4 py-3 text-gray-600 text-xs font-medium">
                       {row.verificationBy}
                     </td>
                     <td className="px-4 py-3 text-center">
-                      {isStudent && isAvailable ? (
+                      {isStudent && row.status === 'AVAILABLE' && row.quantityAvailable > 0 ? (
                         <button
                           onClick={() => setBorrowTarget(row.code)}
                           className="px-3 py-1.5 text-[10px] font-bold rounded-lg bg-utm-maroon text-white hover:bg-utm-maroon-dark transition-colors cursor-pointer"
                         >
                           Borrow
                         </button>
-                      ) : isStudent && isMaintenance ? (
+                      ) : isStudent &&
+                        (row.status === 'BROKEN' || row.status === 'CALIBRATING') ? (
                         <span className="inline-flex items-center gap-1 px-2.5 py-1 text-[10px] font-bold text-red-700 bg-red-50 border border-red-200 rounded-md select-none">
                           <Wrench className="w-3 h-3" />
                           Maintenance
@@ -324,8 +281,7 @@ export function EquipmentAvailability({
                       )}
                     </td>
                   </tr>
-                  );
-                })}
+                ))}
               </tbody>
             </table>
           </div>
