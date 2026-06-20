@@ -1,4 +1,4 @@
-  const banApplication = useCallback(async (appId: string) => {
+   const banApplication = useCallback(async (appId: string) => {
     const { data: target } = await supabase.from('applications').select('student_email, equipment_code').eq('id', appId).single();
     if (!target) return;
     const studentEmail = (target.student_email as string).toLowerCase().trim();
