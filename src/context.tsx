@@ -522,12 +522,12 @@ export function AppProvider({ children }: { children: ReactNode }) {
   }, []);
 
   const incomingVerificationQueue = useMemo(
-    () => applicationQueue.filter((app) => app.stage === 'PENDING' || app.stage === 'RETURN_PENDING'),
+    () => applicationQueue.filter((app) => app.stage === 'PENDING'),
     [applicationQueue]
   );
 
   const processedApplicationsLog = useMemo(
-    () => applicationQueue.filter((app) => app.stage === 'ACTIVE_BORROW'),
+    () => applicationQueue.filter((app) => app.stage === 'ACTIVE_BORROW' || app.stage === 'RETURN_PENDING'),
     [applicationQueue]
   );
 
