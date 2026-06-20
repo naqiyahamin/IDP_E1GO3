@@ -214,3 +214,4 @@ export function updateUserPasswordInRegistry(): boolean {
   console.warn('updateUserPasswordInRegistry is disabled. Use Supabase password reset instead.');
   return false;
 }
+
