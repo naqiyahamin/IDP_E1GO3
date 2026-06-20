@@ -49,7 +49,11 @@ const VALIDATORS: Record<keyof BorrowFormData, (v: string, context?: string) => 
   },
 
   duration: (v) => {
-    if (!v.trim()) return 'Required';
+    const value = v.trim().toUpperCase();
+    if (!value) return 'Required';
+    if (!/^\d+(?:\.\d+)?\s+(MINUTE|MINUTES|HOUR|HOURS|DAY|DAYS)$/.test(value)) {
+      return 'Use format: 1 MINUTE, 2 HOURS, or 1 DAY';
+    }
     return null;
   },
 
@@ -277,7 +281,7 @@ export default function BorrowForm({
                 }
                 onBlur={() => handleBlur('duration')}
                 className={fieldClass('duration')}
-                placeholder="e.g. 1 DAY or 2 HOURS"
+                placeholder="e.g. 1 MINUTE or 2 HOURS"
               />
               {touched.duration && errors.duration && (
                 <p className="text-[10px] text-red-500 mt-1">{errors.duration}</p>
@@ -361,7 +365,7 @@ export default function BorrowForm({
               placeholder="name@graduate.utm.my"
             />
             <p className="text-[10px] text-emerald-600 mt-1 font-medium">
-              ✓ Locked to your active authenticated student session credentials.
+              Locked to your active authenticated student session credentials.
             </p>
           </div>
 
