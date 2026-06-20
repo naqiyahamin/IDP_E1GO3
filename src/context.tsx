@@ -5,8 +5,10 @@ import {
   useCallback,
   useEffect,
   useMemo,
+  useRef,
   type ReactNode,
 } from 'react';
+import emailjs from '@emailjs/browser';
 import { supabase } from './lib/supabase';
 import { type BorrowFormData } from './components/BorrowFormModal';
 import { updateUserPasswordInRegistry } from './auth';
@@ -85,6 +87,7 @@ export interface Application {
   isApproved: boolean;
   isReturned: boolean;
   isReturnVerified: boolean;
+  overdueEmailSent?: boolean;
   approvedAt?: string;
   returnSubmittedAt?: string;
   returnVerifiedAt?: string;
@@ -118,6 +121,121 @@ interface AppState {
 
 const AppContext = createContext<AppState | null>(null);
 
+const MINUTE_DURATION_REGEX = /\bMINUTES?\b/i;
+const DURATION_AMOUNT_REGEX = /(\d+(?:\.\d+)?)/;
+
+function parseDurationAmount(duration: string): number | null {
+  const match = duration.match(DURATION_AMOUNT_REGEX);
+  if (!match) return null;
+
+  const amount = Number(match[1]);
+  return Number.isFinite(amount) && amount > 0 ? amount : null;
+}
+
+function parseBorrowDateWithReturnTime(dateBorrow: string, returnTime: string): Date | null {
+  if (!dateBorrow || !returnTime) return null;
+
+  const normalizedTime = returnTime.trim();
+  const twelveHourMatch = normalizedTime.match(/^(\d{1,2}):(\d{2})\s*(AM|PM)$/i);
+  let hours: number;
+  let minutes: number;
+
+  if (twelveHourMatch) {
+    hours = Number(twelveHourMatch[1]);
+    minutes = Number(twelveHourMatch[2]);
+    const period = twelveHourMatch[3].toUpperCase();
+
+    if (period === 'PM' && hours < 12) hours += 12;
+    if (period === 'AM' && hours === 12) hours = 0;
+  } else {
+    const twentyFourHourMatch = normalizedTime.match(/^(\d{1,2}):(\d{2})$/);
+    if (!twentyFourHourMatch) return null;
+
+    hours = Number(twentyFourHourMatch[1]);
+    minutes = Number(twentyFourHourMatch[2]);
+  }
+
+  const dueAt = new Date(`${dateBorrow}T00:00:00`);
+  if (Number.isNaN(dueAt.getTime())) return null;
+
+  dueAt.setHours(hours, minutes, 0, 0);
+  return dueAt;
+}
+
+export function getExpectedReturnAt(app: Pick<Application, 'formData' | 'approvedAt' | 'processedAt' | 'submittedAt'>): Date | null {
+  const duration = app.formData.duration || '';
+
+  if (MINUTE_DURATION_REGEX.test(duration)) {
+    const amount = parseDurationAmount(duration);
+    const approvalTimestamp = app.approvedAt || app.processedAt;
+    if (!amount || !approvalTimestamp) return null;
+
+    const approvedAt = new Date(approvalTimestamp);
+    if (Number.isNaN(approvedAt.getTime())) return null;
+
+    return new Date(approvedAt.getTime() + amount * 60 * 1000);
+  }
+
+  return parseBorrowDateWithReturnTime(app.formData.dateBorrow, app.formData.returnTime);
+}
+
+export function isApplicationOverdue(
+  app: Pick<Application, 'formData' | 'approvedAt' | 'processedAt' | 'submittedAt' | 'isReturned' | 'returnDetails'>,
+  now: Date = new Date()
+): boolean {
+  if (app.isReturned && app.returnDetails) return false;
+
+  const expectedReturnAt = getExpectedReturnAt(app);
+  return !!expectedReturnAt && expectedReturnAt.getTime() <= now.getTime();
+}
+
+export function formatExpectedReturnAt(app: Pick<Application, 'formData' | 'approvedAt' | 'processedAt' | 'submittedAt'>): string {
+  const expectedReturnAt = getExpectedReturnAt(app);
+  if (!expectedReturnAt) return app.formData.returnTime || 'Not set';
+
+  return expectedReturnAt.toLocaleString([], {
+    year: 'numeric',
+    month: 'short',
+    day: '2-digit',
+    hour: '2-digit',
+    minute: '2-digit',
+  });
+}
+
+async function sendOverdueCriticalEmail(app: Application): Promise<boolean> {
+  const serviceId = import.meta.env.VITE_EMAILJS_SERVICE_ID;
+  const templateId = import.meta.env.VITE_EMAILJS_OVERDUE_TEMPLATE_ID;
+  const publicKey = import.meta.env.VITE_EMAILJS_PUBLIC_KEY;
+
+  if (!serviceId || !templateId || !publicKey) {
+    console.warn(
+      'EmailJS overdue email skipped. Please set VITE_EMAILJS_SERVICE_ID, VITE_EMAILJS_OVERDUE_TEMPLATE_ID, and VITE_EMAILJS_PUBLIC_KEY.'
+    );
+    return false;
+  }
+
+  const expectedReturnAt = formatExpectedReturnAt(app);
+
+  await emailjs.send(
+    serviceId,
+    templateId,
+    {
+      to_email: app.formData.emailAddress,
+      student_email: app.formData.emailAddress,
+      student_name: app.formData.fullName,
+      equipment_code: app.finalEquipmentCode || app.equipmentCode,
+      original_equipment_code: app.originalEquipmentCode || app.equipmentCode,
+      duration: app.formData.duration,
+      borrow_date: app.formData.dateBorrow,
+      return_time: app.formData.returnTime,
+      expected_return_at: expectedReturnAt,
+      message: `Your borrowed laboratory equipment (${app.finalEquipmentCode || app.equipmentCode}) is now OVERDUE CRITICAL. Please return it immediately.`,
+    },
+    publicKey
+  );
+
+  return true;
+}
 function getEquipmentName(code: string): string {
   if (code.startsWith('AGT')) return 'Digital Oscilloscope';
   if (code.startsWith('ARD')) return 'Arduino Uno';
@@ -149,6 +267,7 @@ function dbRowToApplication(row: Record<string, unknown>): Application {
     isApproved: row.is_approved as boolean,
     isReturned: row.is_returned as boolean,
     isReturnVerified: row.is_return_verified as boolean,
+    overdueEmailSent: Boolean(row.overdue_email_sent),
     approvedAt: (row.approved_at as string) || undefined,
     processedAt: (row.processed_at as string) || undefined,
     returnSubmittedAt: (row.return_submitted_at as string) || undefined,
@@ -225,6 +344,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
   const [componentInventory, setComponentInventory] = useState<ComponentType[]>([]);
   const [transactionHistory, setTransactionHistory] = useState<HistoryEntry[]>([]);
   const [loading, setLoading] = useState(true);
+  const overdueEmailTimersRef = useRef<Record<string, number>>({});
 
   const fetchAllData = useCallback(async () => {
     const [appsRes, equipRes, invRes, blackRes, histRes] = await Promise.all([
@@ -271,6 +391,74 @@ export function AppProvider({ children }: { children: ReactNode }) {
     };
   }, [fetchAllData]);
 
+  useEffect(() => {
+    const activeApps = applicationQueue.filter(
+      (app) =>
+        app.stage === 'ACTIVE_BORROW' &&
+        !app.overdueEmailSent &&
+        !(app.isReturned && app.returnDetails)
+    );
+    const activeIds = new Set(activeApps.map((app) => app.id));
+
+    Object.entries(overdueEmailTimersRef.current).forEach(([appId, timerId]) => {
+      if (!activeIds.has(appId)) {
+        window.clearTimeout(timerId);
+        delete overdueEmailTimersRef.current[appId];
+      }
+    });
+
+    activeApps.forEach((app) => {
+      if (overdueEmailTimersRef.current[app.id]) return;
+
+      const expectedReturnAt = getExpectedReturnAt(app);
+      if (!expectedReturnAt) return;
+
+      const delay = Math.max(expectedReturnAt.getTime() - Date.now(), 0);
+
+      overdueEmailTimersRef.current[app.id] = window.setTimeout(async () => {
+        delete overdueEmailTimersRef.current[app.id];
+
+        const { data: latestApp } = await supabase
+          .from('applications')
+          .select('*')
+          .eq('id', app.id)
+          .single();
+
+        if (!latestApp) return;
+
+        const normalizedApp = dbRowToApplication(latestApp);
+        if (
+          normalizedApp.stage !== 'ACTIVE_BORROW' ||
+          normalizedApp.overdueEmailSent ||
+          (normalizedApp.isReturned && normalizedApp.returnDetails) ||
+          !isApplicationOverdue(normalizedApp)
+        ) {
+          return;
+        }
+
+        try {
+          const sent = await sendOverdueCriticalEmail(normalizedApp);
+          if (!sent) return;
+
+          await supabase
+            .from('applications')
+            .update({ overdue_email_sent: true })
+            .eq('id', normalizedApp.id);
+
+          await fetchAllData();
+        } catch (error) {
+          console.error('Overdue critical EmailJS send failed:', error);
+        }
+      }, delay);
+    });
+
+    return () => {
+      Object.values(overdueEmailTimersRef.current).forEach((timerId) =>
+        window.clearTimeout(timerId)
+      );
+      overdueEmailTimersRef.current = {};
+    };
+  }, [applicationQueue, fetchAllData]);
   const updateEquipmentStatus = useCallback((code: string, newStatus: EquipmentStatus) => {
     const quantityAvailable = newStatus === 'AVAILABLE' ? 1 : 0;
 
@@ -332,6 +520,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
         is_approved: false,
         is_returned: false,
         is_return_verified: false,
+        overdue_email_sent: false,
       };
 
       const { error } = await supabase.from('applications').insert(row);
