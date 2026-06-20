@@ -777,7 +777,11 @@ export default function ApplicationStatus({
                       </td>
 
                       <td className="px-4 py-3 text-center">
-                        {isOverdue ? (
+                        {isReturnSubmitted ? (
+                          <span className="inline-flex items-center gap-1 bg-orange-50 border border-orange-200 text-orange-700 px-2 py-0.5 rounded font-bold text-[9px]">
+                            RETURN SUBMITTED - STAFF REVIEW
+                          </span>
+                        ) : isOverdue ? (
                           <span className="inline-flex items-center gap-1 bg-red-100 border border-red-300 text-red-700 px-2 py-0.5 rounded font-black text-[9px] animate-bounce">
                             OVERDUE CRITICAL
                           </span>
@@ -827,6 +831,12 @@ export default function ApplicationStatus({
                                 </button>
                               </div>
                             )}
+                          </div>
+                        ) : isReturnSubmitted ? (
+                          <div className="flex justify-center">
+                            <span className="inline-flex items-center justify-center bg-orange-50 text-orange-700 border border-orange-200 font-bold px-3 py-1.5 rounded-lg text-[10px]">
+                              Awaiting Staff Verification
+                            </span>
                           </div>
                         ) : (
                           <div className="flex justify-center">
