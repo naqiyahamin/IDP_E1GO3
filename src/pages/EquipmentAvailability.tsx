@@ -269,7 +269,7 @@ export function EquipmentAvailability({
                       {row.verificationBy}
                     </td>
                     <td className="px-4 py-3 text-center">
-                      {isStudent && row.status === 'AVAILABLE' && row.quantityAvailable > 0 ? (
+                      {isStudent && row.status === 'AVAILABLE' && (row.quantityAvailable ?? 0) > 0 ? (
                         <button
                           onClick={() => setBorrowTarget(row.code)}
                           className="px-3 py-1.5 text-[10px] font-bold rounded-lg bg-utm-maroon text-white hover:bg-utm-maroon-dark transition-colors cursor-pointer"
