@@ -11,7 +11,13 @@ import {
 } from 'lucide-react';
 import BorrowFormModal, { type BorrowFormData } from '../components/BorrowFormModal';
 import TinkerIoTSimulator from '../components/TinkerIoTSimulator';
-import { useAppState, type EquipmentStatus, type Application } from '../context';
+import {
+  formatExpectedReturnAt,
+  isApplicationOverdue,
+  useAppState,
+  type EquipmentStatus,
+  type Application,
+} from '../context';
 import type { UserRole } from '../auth';
 
 const statusBadge: Record<EquipmentStatus, string> = {
@@ -333,8 +339,11 @@ export function EquipmentAvailability({
                       </td>
                     </tr>
                   ) : (
-                    processedApplicationsLog.map((app: Application) => (
-                      <tr key={app.id} className="hover:bg-gray-50/40">
+                    processedApplicationsLog.map((app: Application) => {
+                      const isOverdue = isApplicationOverdue(app);
+
+                      return (
+                        <tr key={app.id} className="hover:bg-gray-50/40">
                         <td className="p-4 font-mono font-bold text-gray-500 text-sm">
                           {app.originalEquipmentCode || app.equipmentCode}
                         </td>
@@ -363,14 +372,24 @@ export function EquipmentAvailability({
                           <div className="text-[10px] text-gray-400">
                             Duration Limit: {app.formData.duration}
                           </div>
+                          <div className="text-[10px] text-gray-400">
+                            Expected Return: {formatExpectedReturnAt(app)}
+                          </div>
                         </td>
                         <td className="p-4">
-                          <span className="inline-flex items-center gap-1 font-bold text-[10px] px-2 py-0.5 rounded bg-amber-50 text-amber-700 border border-amber-200 uppercase">
-                            Still Borrowing / Not Returned
+                          <span
+                            className={`inline-flex items-center gap-1 font-bold text-[10px] px-2 py-0.5 rounded border uppercase ${
+                              isOverdue
+                                ? 'bg-red-50 text-red-700 border-red-200'
+                                : 'bg-amber-50 text-amber-700 border-amber-200'
+                            }`}
+                          >
+                            {isOverdue ? 'Overdue Critical' : 'Still Borrowing / Not Returned'}
                           </span>
                         </td>
                       </tr>
-                    ))
+                      );
+                    })
                   )}
                 </tbody>
               </table>
