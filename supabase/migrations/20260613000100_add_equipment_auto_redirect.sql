@@ -6,7 +6,8 @@ add column if not exists original_equipment_code text,
 add column if not exists final_equipment_code text,
 add column if not exists auto_redirect_note text,
 add column if not exists waiting_list_reason text,
-add column if not exists equipment_type text;
+add column if not exists equipment_type text,
+add column if not exists overdue_email_sent boolean not null default false;
 
 alter table equipment_rows
 add column if not exists equipment_name text,
@@ -165,7 +166,8 @@ begin
     stage = 'ACTIVE_BORROW',
     is_approved = true,
     approved_at = now(),
-    processed_at = now()
+    processed_at = now(),
+    overdue_email_sent = false
   where id = p_app_id;
 
   update component_inventory
