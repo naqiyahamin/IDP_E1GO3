@@ -325,6 +325,10 @@ export function AppProvider({ children }: { children: ReactNode }) {
       student_year_course: formData.yearCourse,
       equipment_code: equipmentCode,
       equipment_name: getEquipmentName(equipmentCode),
+      original_equipment_code: equipmentCode,
+      final_equipment_code: null,
+      auto_redirect_note: null,
+      waiting_list_reason: null,
       borrow_date: formData.dateBorrow,
       duration: formData.duration,
       return_target: formData.returnTime,
@@ -337,10 +341,31 @@ export function AppProvider({ children }: { children: ReactNode }) {
       is_return_verified: false,
     };
 
-    const { error } = await supabase.from('applications').insert(row);
+    const { data: insertedApp, error } = await supabase
+      .from('applications')
+      .insert(row)
+      .select('id')
+      .single();
+
     if (error) {
       console.error('Submit application failed:', error);
       return false;
+    }
+
+    try {
+      const { error: smsError } = await supabase.functions.invoke('send-new-application-sms', {
+        body: {
+          record: {
+            id: insertedApp.id,
+          },
+        },
+      });
+
+      if (smsError) {
+        console.error('New application staff SMS failed:', smsError);
+      }
+    } catch (smsError) {
+      console.error('New application staff SMS failed:', smsError);
     }
 
     await fetchAllData();
