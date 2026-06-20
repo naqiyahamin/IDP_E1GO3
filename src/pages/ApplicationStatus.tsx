@@ -1,4 +1,4 @@
-import { useState, useMemo } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import {
   Clock,
   ShieldCheck,
@@ -14,7 +14,7 @@ import {
   Phone,
   XCircle,
 } from 'lucide-react';
-import { useAppState } from '../context';
+import { formatExpectedReturnAt, isApplicationOverdue, useAppState } from '../context';
 import type { UserRole } from '../auth';
 
 interface ApplicationStatusProps {
@@ -67,7 +67,14 @@ export default function ApplicationStatus({
   const [insufficientStockAppId, setInsufficientStockAppId] = useState<string | null>(null);
   const [banConfirmAppId, setBanConfirmAppId] = useState<string | null>(null);
   const [banToast, setBanToast] = useState<string | null>(null);
+  const [nowTick, setNowTick] = useState(() => Date.now());
 
+  useEffect(() => {
+    const timerId = window.setInterval(() => setNowTick(Date.now()), 15000);
+    return () => window.clearInterval(timerId);
+  }, []);
+
+  const currentTime = useMemo(() => new Date(nowTick), [nowTick]);
   const cleanUserEmail = currentUserEmail.trim().toLowerCase();
   const isStaff = userRole === 'staff' || cleanUserEmail === 'naqiyah@graduate.utm.my';
 
@@ -151,10 +158,7 @@ export default function ApplicationStatus({
 
       if (!(app.isReturned && app.returnDetails)) {
         stats[app.equipmentCode].inPossession += 1;
-        const currentSystemDate = new Date('2026-06-12');
-        const targetReturnDate = new Date(app.formData.dateBorrow);
-
-        if (!isNaN(targetReturnDate.getTime()) && targetReturnDate < currentSystemDate) {
+        if (isApplicationOverdue(app, currentTime)) {
           stats[app.equipmentCode].overdueCount += 1;
         }
       }
@@ -166,7 +170,7 @@ export default function ApplicationStatus({
     });
 
     return Object.values(stats).sort((a, b) => a.code.localeCompare(b.code));
-  }, [incomingVerificationQueue, processedApplicationsLog, historicalLedger, equipmentRows]);
+  }, [incomingVerificationQueue, processedApplicationsLog, historicalLedger, equipmentRows, currentTime]);
 
   const handleApproveWithCascade = async (appId: string) => {
     try {
@@ -343,7 +347,7 @@ export default function ApplicationStatus({
               </div>
             </div>
             <div className="bg-slate-800 border border-slate-700 px-3 py-1 rounded text-[10px] font-mono text-amber-400 font-bold">
-              SYSTEM AUDIT TIME: 2026-06-12
+              SYSTEM AUDIT TIME: LIVE
             </div>
           </div>
 
@@ -693,8 +697,8 @@ export default function ApplicationStatus({
                 processedApplicationsLog.map((app) => {
                   const details = app.formData;
                   const isReturnSubmitted = app.isReturned && !!app.returnDetails;
-                  const isOverdue =
-                    !isReturnSubmitted && new Date(details.dateBorrow) < new Date('2026-06-12');
+                  const isOverdue = isApplicationOverdue(app, currentTime);
+                  const expectedReturnAt = formatExpectedReturnAt(app);
 
                   return (
                     <tr
@@ -766,7 +770,7 @@ export default function ApplicationStatus({
                                 isOverdue ? 'text-red-600 underline' : 'text-gray-900'
                               }`}
                             >
-                              {details.returnTime}
+                              {expectedReturnAt}
                             </span>
                           </div>
                         </div>
