@@ -22,6 +22,39 @@ interface ApplicationStatusProps {
   currentUserEmail?: string;
 }
 
+function normalizeStaffText(value: string): string {
+  return value
+    .toUpperCase()
+    .replace(/VERIFICATION LOG SYNC OPERATOR/g, ' ')
+    .replace(/[^A-Z0-9]+/g, ' ')
+    .replace(/\b(BIN|BINTI|BT|ENCIK|INCIK|PUAN|DR|PROF|MR|MRS|MS)\b/g, ' ')
+    .replace(/\s+/g, ' ')
+    .trim();
+}
+
+function getStaffIdentityTokens(email: string): string[] {
+  const cleanEmail = email.trim().toLowerCase();
+  const localPart = cleanEmail.split('@')[0] || '';
+  const tokensFromEmail = normalizeStaffText(localPart.replace(/[._-]+/g, ' '))
+    .split(' ')
+    .filter((token) => token.length >= 3);
+
+  const knownStaffAliases: Record<string, string[]> = {
+    'naqiyah@graduate.utm.my': ['NAQIYAH'],
+    'aminah@graduate.utm.my': ['AMINAH', 'SULAIMAN'],
+    'khairul@graduate.utm.my': ['KHAIRUL', 'ANUAR'],
+    'noraziah@graduate.utm.my': ['NORAZIAH', 'HASSAN'],
+    'asri@graduate.utm.my': ['ASRI', 'MOHD ASRI'],
+    'labofficerone@graduate.utm.my': ['LAB OFFICER ONE'],
+    'lab.officer.one@graduate.utm.my': ['LAB OFFICER ONE'],
+  };
+
+  const aliases = knownStaffAliases[cleanEmail] || [];
+  return Array.from(
+    new Set([...tokensFromEmail, ...aliases.map(normalizeStaffText)].filter(Boolean))
+  );
+}
+
 export default function ApplicationStatus({
   userRole,
   currentUserEmail = '',
@@ -78,26 +111,57 @@ export default function ApplicationStatus({
   const cleanUserEmail = currentUserEmail.trim().toLowerCase();
   const isStaff = userRole === 'staff' || cleanUserEmail === 'naqiyah@graduate.utm.my';
 
+  const staffIdentityTokens = useMemo(
+    () => getStaffIdentityTokens(cleanUserEmail),
+    [cleanUserEmail]
+  );
+
+  const assignedEquipmentRows = useMemo(() => {
+    if (!isStaff) return [];
+
+    return equipmentRows.filter((row) => {
+      const normalizedVerifier = normalizeStaffText(row.verificationBy || '');
+      return staffIdentityTokens.some((token) => normalizedVerifier.includes(token));
+    });
+  }, [equipmentRows, isStaff, staffIdentityTokens]);
+
+  const assignedEquipmentCodes = useMemo(
+    () => new Set(assignedEquipmentRows.map((row) => row.code)),
+    [assignedEquipmentRows]
+  );
+
+  const appBelongsToCurrentStaff = useMemo(() => {
+    return (app: (typeof rawQueue)[number]) => {
+      const possibleCodes = [
+        app.equipmentCode,
+        app.originalEquipmentCode,
+        app.finalEquipmentCode,
+      ].filter(Boolean) as string[];
+
+      return possibleCodes.some((code) => assignedEquipmentCodes.has(code));
+    };
+  }, [assignedEquipmentCodes]);
+
   const incomingVerificationQueue = useMemo(() => {
-    if (isStaff) return rawQueue;
+    if (isStaff) return rawQueue.filter(appBelongsToCurrentStaff);
     return rawQueue.filter(
       (app) => app.formData.emailAddress.trim().toLowerCase() === cleanUserEmail
     );
-  }, [rawQueue, isStaff, cleanUserEmail]);
+  }, [rawQueue, isStaff, cleanUserEmail, appBelongsToCurrentStaff]);
 
   const processedApplicationsLog = useMemo(() => {
-    if (isStaff) return rawLog;
+    if (isStaff) return rawLog.filter(appBelongsToCurrentStaff);
     return rawLog.filter(
       (app) => app.formData.emailAddress.trim().toLowerCase() === cleanUserEmail
     );
-  }, [rawLog, isStaff, cleanUserEmail]);
+  }, [rawLog, isStaff, cleanUserEmail, appBelongsToCurrentStaff]);
 
   const historicalLedger = useMemo(() => {
-    if (isStaff) return rawLedger;
+    if (isStaff) return rawLedger.filter(appBelongsToCurrentStaff);
     return rawLedger.filter(
       (app) => app.formData.emailAddress.trim().toLowerCase() === cleanUserEmail
     );
-  }, [rawLedger, isStaff, cleanUserEmail]);
+  }, [rawLedger, isStaff, cleanUserEmail, appBelongsToCurrentStaff]);
 
   const getEquipmentName = (code: string) => {
     if (code.startsWith('AGT')) return 'Digital Storage Oscilloscope (Tektronix)';
@@ -144,7 +208,7 @@ export default function ApplicationStatus({
       }
     };
 
-    equipmentRows?.forEach((r) => initRow(r.code));
+    (isStaff ? assignedEquipmentRows : equipmentRows)?.forEach((r) => initRow(r.code));
 
     incomingVerificationQueue.forEach((app) => {
       initRow(app.equipmentCode);
@@ -170,7 +234,15 @@ export default function ApplicationStatus({
     });
 
     return Object.values(stats).sort((a, b) => a.code.localeCompare(b.code));
-  }, [incomingVerificationQueue, processedApplicationsLog, historicalLedger, equipmentRows, currentTime]);
+  }, [
+    incomingVerificationQueue,
+    processedApplicationsLog,
+    historicalLedger,
+    equipmentRows,
+    assignedEquipmentRows,
+    isStaff,
+    currentTime,
+  ]);
 
   const handleApproveWithCascade = async (appId: string) => {
     try {
