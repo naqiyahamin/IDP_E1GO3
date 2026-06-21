@@ -118,8 +118,6 @@ export default function LoginPage({
       setSuccessMessage(result.message);
       setNewPassword('');
       setConfirmNewPassword('');
-
-      window.history.replaceState({}, '', '/');
     } finally {
       setIsSubmitting(false);
     }
@@ -201,7 +199,7 @@ export default function LoginPage({
 
             <button
               type="submit"
-              disabled={isSubmitting}
+              disabled={isSubmitting || Boolean(successMessage)}
               className="w-full bg-utm-maroon hover:bg-utm-maroon-dark disabled:bg-gray-300 disabled:cursor-not-allowed text-white font-bold py-2.5 rounded-lg transition-colors text-sm flex items-center justify-center gap-2"
             >
               {isSubmitting ? 'Updating Password...' : 'Update Password'}
