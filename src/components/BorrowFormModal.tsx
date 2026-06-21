@@ -1,6 +1,5 @@
 import { useState, useMemo } from 'react';
 import { ArrowLeft, Send, Image as ImageIcon, X } from 'lucide-react';
-import { useAppState } from '../context';
 
 interface BorrowFormProps {
   equipmentCode: string;
@@ -28,7 +27,7 @@ const VALIDATORS: Record<keyof BorrowFormData, (v: string, context?: string) => 
       const emailPrefix = emailAddress.trim().split('@')[0].toUpperCase();
       const isTestAccount = /^STUDENT\d+$/.test(emailPrefix);
 
-      if (!isTestAccount && !v.toUpperCase().includes(emailPrefix)) {
+      if (!isTestAccount && !v.toUpperCase().replace(/\s+/g, '').includes(emailPrefix)) {
         return `Security verification failed: Name must match your email identity ("${emailPrefix.toLowerCase()}")`;
       }
     }
@@ -96,21 +95,15 @@ export default function BorrowForm({
   onSubmit,
   onBack,
 }: BorrowFormProps) {
-  const { getLastSubmittedForm } = useAppState();
-
-  const [form, setForm] = useState<BorrowFormData>(() => {
-    const savedForm = getLastSubmittedForm?.();
-
-    return {
-      fullName: savedForm?.fullName || '',
-      yearCourse: savedForm?.yearCourse || '',
-      duration: '',
-      returnTime: '16:00',
-      dateBorrow: new Date().toISOString().split('T')[0],
-      phoneNumber: savedForm?.phoneNumber || '',
-      emailAddress: currentUserEmail || savedForm?.emailAddress || '',
-    };
-  });
+  const [form, setForm] = useState<BorrowFormData>(() => ({
+    fullName: '',
+    yearCourse: '',
+    duration: '',
+    returnTime: '16:00',
+    dateBorrow: new Date().toISOString().split('T')[0],
+    phoneNumber: '',
+    emailAddress: currentUserEmail.trim().toLowerCase(),
+  }));
 
   const [photoAttachment, setPhotoAttachment] = useState<string>('');
   const [touched, setTouched] = useState<Partial<Record<keyof BorrowFormData, boolean>>>({});
@@ -175,7 +168,13 @@ export default function BorrowForm({
       setIsSubmitting(true);
       setSubmitFeedback('idle');
 
-      const success = await onSubmit(form, photoAttachment || undefined);
+      const success = await onSubmit(
+        {
+          ...form,
+          emailAddress: currentUserEmail.trim().toLowerCase(),
+        },
+        photoAttachment || undefined
+      );
 
       if (success) {
         setSubmitFeedback('success');
@@ -222,7 +221,11 @@ export default function BorrowForm({
       </div>
 
       <div className="bg-white rounded-xl border border-gray-200 overflow-hidden max-w-lg shadow-sm">
-        <form onSubmit={handleSubmit} className="p-6 space-y-4" noValidate>
+        <form onSubmit={handleSubmit} className="p-6 space-y-4" noValidate autoComplete="off">
+          <input type="text" name="fake-name" autoComplete="name" className="hidden" />
+          <input type="email" name="fake-email" autoComplete="email" className="hidden" />
+          <input type="tel" name="fake-phone" autoComplete="tel" className="hidden" />
+
           <div className="text-[11px] font-bold tracking-wider text-gray-400 uppercase border-b border-gray-100 pb-1.5 mb-2">
             Personal Information Registry
           </div>
@@ -235,6 +238,8 @@ export default function BorrowForm({
               type="text"
               value={form.fullName}
               disabled={isSubmitting}
+              autoComplete="off"
+              name="borrower-full-name"
               onChange={(e) =>
                 setForm({ ...form, fullName: e.target.value.toUpperCase() })
               }
@@ -255,6 +260,8 @@ export default function BorrowForm({
               type="text"
               value={form.yearCourse}
               disabled={isSubmitting}
+              autoComplete="off"
+              name="borrower-year-course"
               onChange={(e) =>
                 setForm({ ...form, yearCourse: e.target.value.toUpperCase() })
               }
@@ -276,6 +283,8 @@ export default function BorrowForm({
                 type="text"
                 value={form.duration}
                 disabled={isSubmitting}
+                autoComplete="off"
+                name="borrow-duration"
                 onChange={(e) =>
                   setForm({ ...form, duration: e.target.value.toUpperCase() })
                 }
@@ -296,6 +305,8 @@ export default function BorrowForm({
                 type="time"
                 value={form.returnTime}
                 disabled={isSubmitting}
+                autoComplete="off"
+                name="borrow-return-time"
                 onChange={(e) =>
                   setForm({ ...form, returnTime: e.target.value })
                 }
@@ -318,6 +329,8 @@ export default function BorrowForm({
               type="date"
               value={form.dateBorrow}
               disabled={isSubmitting}
+              autoComplete="off"
+              name="borrow-date"
               onChange={(e) =>
                 setForm({ ...form, dateBorrow: e.target.value })
               }
@@ -339,6 +352,8 @@ export default function BorrowForm({
               type="tel"
               value={form.phoneNumber}
               disabled={isSubmitting}
+              autoComplete="off"
+              name="borrower-phone"
               onChange={(e) =>
                 setForm({ ...form, phoneNumber: e.target.value })
               }
@@ -359,8 +374,10 @@ export default function BorrowForm({
             </label>
             <input
               type="email"
-              value={form.emailAddress}
+              value={currentUserEmail.trim().toLowerCase()}
               disabled
+              autoComplete="off"
+              name="locked-session-email"
               className="w-full px-3 py-2 text-sm border rounded-lg bg-gray-100 text-gray-500 cursor-not-allowed border-gray-200 outline-none"
               placeholder="name@graduate.utm.my"
             />
