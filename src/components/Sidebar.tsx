@@ -3,11 +3,20 @@ import {
   Cpu,
   ClipboardList,
   UserCheck,
-  Boxes, // Added for inventory icon
+  Boxes,
+  ListChecks,
+  CalendarDays,
 } from 'lucide-react';
 import type { UserRole } from '../auth';
 
-export type ActivePage = 'laboratories' | 'equipment' | 'applications' | 'inventory' | 'staff';
+export type ActivePage =
+  | 'laboratories'
+  | 'equipment'
+  | 'applications'
+  | 'waiting-list'
+  | 'calendar'
+  | 'inventory'
+  | 'staff';
 
 interface SidebarProps {
   activePage: ActivePage;
@@ -16,7 +25,6 @@ interface SidebarProps {
 }
 
 export default function Sidebar({ activePage, onNavigate, userRole }: SidebarProps) {
-  // Base items visible to both students and staff
   const navItems: { id: ActivePage; label: string; icon: React.ElementType }[] = [
     { id: 'laboratories', label: 'Laboratory List', icon: FlaskConical },
     { id: 'equipment', label: 'Equipment Availability', icon: Cpu },
@@ -27,21 +35,30 @@ export default function Sidebar({ activePage, onNavigate, userRole }: SidebarPro
     },
   ];
 
-  // Insert Inventory Management right before Staff On Duty, exclusively for Staff
   if (userRole === 'staff') {
-    navItems.push({
-      id: 'inventory',
-      label: 'Inventory Management',
-      icon: Boxes,
-    });
+    navItems.push(
+      {
+        id: 'waiting-list',
+        label: 'Waiting List',
+        icon: ListChecks,
+      },
+      {
+        id: 'calendar',
+        label: 'Equipment Calendar',
+        icon: CalendarDays,
+      },
+      {
+        id: 'inventory',
+        label: 'Inventory Management',
+        icon: Boxes,
+      }
+    );
   }
 
-  // Always append Staff On Duty at the end
   navItems.push({ id: 'staff', label: 'Staff On Duty', icon: UserCheck });
 
   return (
     <aside className="fixed left-0 top-0 h-screen w-64 bg-utm-maroon-dark flex flex-col z-50">
-      {/* Header */}
       <div className="px-5 py-6 border-b border-white/10">
         <div className="flex items-center gap-3">
           <div className="w-10 h-10 rounded-lg bg-utm-gold flex items-center justify-center">
@@ -54,11 +71,11 @@ export default function Sidebar({ activePage, onNavigate, userRole }: SidebarPro
         </div>
       </div>
 
-      {/* Navigation */}
       <nav className="flex-1 px-3 py-4 space-y-1">
         {navItems.map((item) => {
           const Icon = item.icon;
           const isActive = activePage === item.id;
+
           return (
             <button
               key={item.id}
@@ -74,14 +91,9 @@ export default function Sidebar({ activePage, onNavigate, userRole }: SidebarPro
         })}
       </nav>
 
-      {/* Footer */}
       <div className="px-5 py-4 border-t border-white/10">
-        <p className="text-gray-400 text-xs">
-          Faculty of Electrical Engineering
-        </p>
-        <p className="text-gray-500 text-[10px] mt-1">
-          Universiti Teknologi Malaysia
-        </p>
+        <p className="text-gray-400 text-xs">Faculty of Electrical Engineering</p>
+        <p className="text-gray-500 text-[10px] mt-1">Universiti Teknologi Malaysia</p>
       </div>
     </aside>
   );
