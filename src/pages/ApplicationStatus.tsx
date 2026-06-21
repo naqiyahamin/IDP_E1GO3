@@ -13,6 +13,7 @@ import {
   Wrench,
   Phone,
   XCircle,
+  Image as ImageIcon,
 } from 'lucide-react';
 import { formatExpectedReturnAt, isApplicationOverdue, useAppState } from '../context';
 import type { UserRole } from '../auth';
@@ -60,6 +61,29 @@ function getStaffIdentityTokens(email: string): string[] {
   return Array.from(
     new Set([...tokensFromEmail, ...aliases.map(normalizeStaffText)].filter(Boolean))
   );
+}
+
+function getDirectStaffEquipmentCodes(email: string): string[] {
+  const cleanEmail = email.trim().toLowerCase();
+
+  const directAssignments: Record<string, string[]> = {
+    'naqiyah@graduate.utm.my': ['AGT567', 'AGT568'],
+    'naqiyah@utm.my': ['AGT567', 'AGT568'],
+    'aminah@graduate.utm.my': ['AGT569', 'AGT570'],
+    'aminah@utm.my': ['AGT569', 'AGT570'],
+    'khairul@graduate.utm.my': ['AGT571'],
+    'khairul@utm.my': ['AGT571'],
+    'noraziah@graduate.utm.my': ['AGT572'],
+    'noraziah@utm.my': ['AGT572'],
+    'asri@graduate.utm.my': ['AGT573'],
+    'asri@utm.my': ['AGT573'],
+    'labofficerone@graduate.utm.my': ['AGT574'],
+    'lab.officer.one@graduate.utm.my': ['AGT574'],
+    'staff1@graduate.utm.my': ['AGT574'],
+    'staff1@utm.my': ['AGT574'],
+  };
+
+  return directAssignments[cleanEmail] || [];
 }
 
 export default function ApplicationStatus({
@@ -123,6 +147,11 @@ export default function ApplicationStatus({
     [cleanUserEmail]
   );
 
+  const directStaffEquipmentCodes = useMemo(
+    () => getDirectStaffEquipmentCodes(cleanUserEmail),
+    [cleanUserEmail]
+  );
+
   const assignedEquipmentRows = useMemo(() => {
     if (!isStaff) return [];
 
@@ -133,8 +162,8 @@ export default function ApplicationStatus({
   }, [equipmentRows, isStaff, staffIdentityTokens]);
 
   const assignedEquipmentCodes = useMemo(
-    () => new Set(assignedEquipmentRows.map((row) => row.code)),
-    [assignedEquipmentRows]
+    () => new Set([...assignedEquipmentRows.map((row) => row.code), ...directStaffEquipmentCodes]),
+    [assignedEquipmentRows, directStaffEquipmentCodes]
   );
 
   const appBelongsToCurrentStaff = useMemo(() => {
@@ -350,6 +379,40 @@ export default function ApplicationStatus({
       phone,
       message: `[UTM LAB ALERT] Hi ${studentName}, your borrowed laboratory equipment (${equipmentCode}) is currently marked as OVERDUE CRITICAL. Please return it to the lab counter immediately to prevent account suspension.`,
     });
+  };
+
+  const renderAttachmentPreview = (
+    imageSource: string | undefined,
+    label: string,
+    emptyLabel = 'No image attached'
+  ) => {
+    if (!imageSource) {
+      return (
+        <span className="inline-flex items-center gap-1 text-[10px] text-gray-400 italic">
+          <ImageIcon className="w-3 h-3" />
+          {emptyLabel}
+        </span>
+      );
+    }
+
+    return (
+      <div className="mt-2 flex items-center gap-2">
+        <button
+          type="button"
+          onClick={() => window.open(imageSource, '_blank', 'noopener,noreferrer')}
+          className="group inline-flex items-center gap-2 rounded-lg border border-slate-200 bg-white px-2 py-1 text-[10px] font-bold text-slate-700 shadow-sm hover:border-red-200 hover:bg-red-50 hover:text-red-800 transition-colors"
+        >
+          <span className="h-9 w-9 overflow-hidden rounded-md border border-slate-200 bg-slate-50 flex items-center justify-center">
+            <img
+              src={imageSource}
+              alt={label}
+              className="h-full w-full object-cover"
+            />
+          </span>
+          <span>{label}</span>
+        </button>
+      </div>
+    );
   };
 
   return (
@@ -664,6 +727,16 @@ export default function ApplicationStatus({
                         <span className="text-[10px] text-gray-400 block max-w-[180px] truncate">
                           {getEquipmentName(app.equipmentCode)}
                         </span>
+
+                        {isStaff && (
+                          <div className="pt-1">
+                            {renderAttachmentPreview(
+                              app.photoAttachment,
+                              'View Borrow Proof',
+                              'No borrow proof'
+                            )}
+                          </div>
+                        )}
                       </td>
 
                       <td className="px-4 py-3 space-y-0.5 text-gray-600">
@@ -832,6 +905,16 @@ export default function ApplicationStatus({
                             {app.autoRedirectNote}
                           </div>
                         )}
+
+                        {isStaff && (
+                          <div className="pt-1">
+                            {renderAttachmentPreview(
+                              app.photoAttachment,
+                              'View Borrow Proof',
+                              'No borrow proof'
+                            )}
+                          </div>
+                        )}
                       </td>
 
                       <td className="px-4 py-3 space-y-1">
@@ -853,6 +936,14 @@ export default function ApplicationStatus({
                             </span>
                           </div>
                         </div>
+
+                        {isStaff &&
+                          isReturnSubmitted &&
+                          renderAttachmentPreview(
+                            app.returnDetails?.equipmentImage,
+                            'View Return Proof',
+                            'No return proof'
+                          )}
                       </td>
 
                       <td className="px-4 py-3 text-center">
@@ -1007,6 +1098,22 @@ export default function ApplicationStatus({
                         {app.autoRedirectNote && (
                           <div className="mt-1 text-[10px] text-amber-700 font-medium max-w-[260px]">
                             {app.autoRedirectNote}
+                          </div>
+                        )}
+
+                        {isStaff && (
+                          <div className="pt-1 space-y-1">
+                            {renderAttachmentPreview(
+                              app.photoAttachment,
+                              'View Borrow Proof',
+                              'No borrow proof'
+                            )}
+                            {app.returnDetails?.equipmentImage &&
+                              renderAttachmentPreview(
+                                app.returnDetails.equipmentImage,
+                                'View Return Proof',
+                                'No return proof'
+                              )}
                           </div>
                         )}
                       </td>
