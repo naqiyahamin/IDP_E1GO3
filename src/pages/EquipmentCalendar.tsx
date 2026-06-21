@@ -1,6 +1,6 @@
 import { useMemo, useState } from 'react';
 import { CalendarDays, ChevronLeft, ChevronRight, Clock, Package, UserCheck } from 'lucide-react';
-import { useAppState, formatExpectedReturnAt } from '../context';
+import { useAppState, formatExpectedReturnAt, getExpectedReturnAt } from '../context';
 import type { UserRole } from '../auth';
 
 interface EquipmentCalendarProps {
@@ -20,12 +20,18 @@ interface CalendarEvent {
   type: CalendarEventType;
 }
 
-function toDateKey(value: string): string {
+function toDateKey(value: string | Date): string {
   if (!value) return '';
-  if (/^\d{4}-\d{2}-\d{2}$/.test(value)) return value;
-  const parsed = new Date(value);
-  if (Number.isNaN(parsed.getTime())) return '';
-  return parsed.toISOString().split('T')[0];
+
+  if (typeof value === 'string') {
+    if (/^\d{4}-\d{2}-\d{2}$/.test(value)) return value;
+    const parsed = new Date(value);
+    if (Number.isNaN(parsed.getTime())) return '';
+    return parsed.toISOString().split('T')[0];
+  }
+
+  if (Number.isNaN(value.getTime())) return '';
+  return value.toISOString().split('T')[0];
 }
 
 function getMonthDays(year: number, month: number) {
@@ -65,7 +71,7 @@ export default function EquipmentCalendar({
 }: EquipmentCalendarProps) {
   const { applicationQueue, equipmentRows } = useAppState();
   const [cursorDate, setCursorDate] = useState(() => new Date());
-  const [selectedDate, setSelectedDate] = useState(() => toDateKey(new Date().toISOString()));
+  const [selectedDate, setSelectedDate] = useState(() => toDateKey(new Date()));
 
   const cleanUserEmail = currentUserEmail.trim().toLowerCase();
   const isStaff = userRole === 'staff';
@@ -111,9 +117,11 @@ export default function EquipmentCalendar({
       }
 
       if (app.stage === 'ACTIVE_BORROW') {
+        const expectedReturnAt = getExpectedReturnAt(app);
+
         generatedEvents.push({
           id: `${app.id}-due`,
-          date: app.formData.dateBorrow,
+          date: expectedReturnAt ? toDateKey(expectedReturnAt) : app.formData.dateBorrow,
           title: 'Expected Return',
           detail: formatExpectedReturnAt(app),
           equipmentCode,
@@ -243,7 +251,7 @@ export default function EquipmentCalendar({
 
           <div className="grid grid-cols-7">
             {monthDays.map((day, index) => {
-              const dateKey = day ? toDateKey(day.toISOString()) : '';
+              const dateKey = day ? toDateKey(day) : '';
               const dayEvents = dateKey ? eventsByDate[dateKey] || [] : [];
               const isSelected = dateKey === selectedDate;
 
