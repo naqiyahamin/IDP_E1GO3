@@ -107,25 +107,98 @@ function getEquipmentName(code: string): string {
   return 'Digital Oscilloscope';
 }
 
+function parseDuration(duration: string): { amount: number; unit: 'MINUTE' | 'HOUR' | 'DAY' | 'WEEK' } | null {
+  const match = duration.trim().toUpperCase().match(/^(\d+(?:\.\d+)?)\s+(MINUTE|MINUTES|HOUR|HOURS|DAY|DAYS|WEEK|WEEKS)$/);
+  if (!match) return null;
+
+  const amount = Number(match[1]);
+  if (!Number.isFinite(amount) || amount <= 0) return null;
+
+  const rawUnit = match[2];
+  if (rawUnit.startsWith('MINUTE')) return { amount, unit: 'MINUTE' };
+  if (rawUnit.startsWith('HOUR')) return { amount, unit: 'HOUR' };
+  if (rawUnit.startsWith('DAY')) return { amount, unit: 'DAY' };
+  return { amount, unit: 'WEEK' };
+}
+
+function parseBorrowDateWithReturnTime(borrowDate: string, returnTime: string): Date | null {
+  if (!borrowDate || !returnTime) return null;
+
+  const dueAt = new Date(`${borrowDate}T00:00:00`);
+  if (Number.isNaN(dueAt.getTime())) return null;
+
+  const normalizedTime = returnTime.trim();
+  const twelveHourMatch = normalizedTime.match(/^(\d{1,2}):(\d{2})\s*(AM|PM)$/i);
+  const twentyFourHourMatch = normalizedTime.match(/^(\d{1,2}):(\d{2})$/);
+
+  let hours = 0;
+  let minutes = 0;
+
+  if (twelveHourMatch) {
+    hours = Number(twelveHourMatch[1]);
+    minutes = Number(twelveHourMatch[2]);
+    const period = twelveHourMatch[3].toUpperCase();
+
+    if (period === 'PM' && hours < 12) hours += 12;
+    if (period === 'AM' && hours === 12) hours = 0;
+  } else if (twentyFourHourMatch) {
+    hours = Number(twentyFourHourMatch[1]);
+    minutes = Number(twentyFourHourMatch[2]);
+  } else {
+    return null;
+  }
+
+  dueAt.setHours(hours, minutes, 0, 0);
+  return dueAt;
+}
+
+export function getExpectedReturnAt(app: Application): Date | null {
+  const duration = parseDuration(app.formData.duration || '');
+
+  if (duration?.unit === 'MINUTE' || duration?.unit === 'HOUR') {
+    const approvalTimestamp = app.approvedAt || app.processedAt || '';
+    if (!approvalTimestamp) return null;
+
+    const approvedAt = new Date(approvalTimestamp);
+    if (Number.isNaN(approvedAt.getTime())) return null;
+
+    const multiplier = duration.unit === 'MINUTE' ? 60 * 1000 : 60 * 60 * 1000;
+    return new Date(approvedAt.getTime() + duration.amount * multiplier);
+  }
+
+  const dueAt = parseBorrowDateWithReturnTime(app.formData.dateBorrow, app.formData.returnTime);
+  if (!dueAt) return null;
+
+  if (duration?.unit === 'DAY') {
+    dueAt.setDate(dueAt.getDate() + duration.amount);
+  }
+
+  if (duration?.unit === 'WEEK') {
+    dueAt.setDate(dueAt.getDate() + duration.amount * 7);
+  }
+
+  return dueAt;
+}
+
 export function isApplicationOverdue(app: Application, currentTime?: Date): boolean {
   if (app.isReturned && app.returnDetails) return false;
   const now = currentTime || new Date();
-  const borrowDate = new Date(app.formData.dateBorrow);
-  if (isNaN(borrowDate.getTime())) return false;
-  return borrowDate < now;
+  const expectedReturnAt = getExpectedReturnAt(app);
+  if (!expectedReturnAt) return false;
+  return expectedReturnAt.getTime() < now.getTime();
 }
 
 export function formatExpectedReturnAt(app: Application): string {
-  const borrowDate = app.formData.dateBorrow;
-  const returnTime = app.formData.returnTime;
-  if (!borrowDate || !returnTime) return '';
-  try {
-    const date = new Date(borrowDate);
-    if (isNaN(date.getTime())) return `${borrowDate} ${returnTime}`;
-    return `${borrowDate} ${returnTime}`;
-  } catch {
-    return `${borrowDate} ${returnTime}`;
-  }
+  const expectedReturnAt = getExpectedReturnAt(app);
+  if (!expectedReturnAt) return `${app.formData.dateBorrow} ${app.formData.returnTime}`;
+
+  return expectedReturnAt.toLocaleString('en-MY', {
+    year: 'numeric',
+    month: '2-digit',
+    day: '2-digit',
+    hour: '2-digit',
+    minute: '2-digit',
+  });
 }
 
 function dbRowToApplication(row: Record<string, unknown>): Application {
