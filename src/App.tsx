@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import Sidebar, { type ActivePage } from './components/Sidebar';
 import Header from './components/Header';
 import LaboratoryList from './pages/LaboratoryList';
@@ -7,18 +7,72 @@ import ApplicationStatus from './pages/ApplicationStatus';
 import StaffOnDuty from './pages/StaffOnDuty';
 import AdvancedElectronics from './pages/AdvancedElectronics';
 import LoginPage from './pages/LoginPage';
-import InventoryManagement from './pages/InventoryManagement'; // Imported new inventory page
-import { type AllowedUser } from './auth';
+import InventoryManagement from './pages/InventoryManagement';
+import {
+  getCurrentAuthenticatedUser,
+  signOutUser,
+  type AllowedUser,
+} from './auth';
 import { AppProvider, useAppState } from './context';
 
 type ViewMode =
   | { page: ActivePage; labId: null }
   | { page: 'laboratories'; labId: string };
 
+function hasSupabaseRecoveryToken(): boolean {
+  const searchParams = new URLSearchParams(window.location.search);
+  const hashParams = new URLSearchParams(window.location.hash.replace(/^#/, ''));
+
+  return (
+    window.location.pathname === '/reset-password' ||
+    searchParams.get('type') === 'recovery' ||
+    hashParams.get('type') === 'recovery' ||
+    searchParams.has('code') ||
+    hashParams.has('access_token')
+  );
+}
+
 function MainDashboardApp() {
   const { loading } = useAppState();
   const [currentUser, setCurrentUser] = useState<AllowedUser | null>(null);
+  const [authLoading, setAuthLoading] = useState(true);
+  const [isResetPasswordMode, setIsResetPasswordMode] = useState(hasSupabaseRecoveryToken);
   const [view, setView] = useState<ViewMode>({ page: 'laboratories', labId: null });
+
+  useEffect(() => {
+    let isMounted = true;
+
+    async function restoreUserSession() {
+      const user = await getCurrentAuthenticatedUser();
+
+      if (isMounted) {
+        setCurrentUser(user);
+        setAuthLoading(false);
+      }
+    }
+
+    restoreUserSession();
+
+    return () => {
+      isMounted = false;
+    };
+  }, []);
+
+  useEffect(() => {
+    const handleUrlChange = () => {
+      if (hasSupabaseRecoveryToken()) {
+        setIsResetPasswordMode(true);
+      }
+    };
+
+    window.addEventListener('hashchange', handleUrlChange);
+    window.addEventListener('popstate', handleUrlChange);
+
+    return () => {
+      window.removeEventListener('hashchange', handleUrlChange);
+      window.removeEventListener('popstate', handleUrlChange);
+    };
+  }, []);
 
   const navigateToPage = (page: ActivePage) => {
     setView({ page, labId: null });
@@ -36,15 +90,17 @@ function MainDashboardApp() {
 
   const handleLogin = (user: AllowedUser) => {
     setCurrentUser(user);
+    setIsResetPasswordMode(false);
   };
 
-  const handleLogout = () => {
+  const handleLogout = async () => {
+    await signOutUser();
     setCurrentUser(null);
+    setIsResetPasswordMode(false);
     setView({ page: 'laboratories', labId: null });
   };
 
-  // Show loading spinner while Supabase data is being fetched
-  if (loading) {
+  if (authLoading || loading) {
     return (
       <div className="min-h-screen bg-gray-50 flex items-center justify-center">
         <div className="text-center space-y-3">
@@ -55,9 +111,13 @@ function MainDashboardApp() {
     );
   }
 
-  // If there's no user logged in, intercept and render the Login Screen
-  if (!currentUser) {
-    return <LoginPage onLogin={handleLogin} />;
+  if (isResetPasswordMode || !currentUser) {
+    return (
+      <LoginPage
+        onLogin={handleLogin}
+        isResetPasswordMode={isResetPasswordMode}
+      />
+    );
   }
 
   const renderContent = () => {
@@ -75,22 +135,22 @@ function MainDashboardApp() {
         return <LaboratoryList onLabClick={handleLabClick} />;
       case 'equipment':
         return (
-          <EquipmentAvailability 
-            userRole={currentUser.role} 
-            currentUserEmail={currentUser.email} 
+          <EquipmentAvailability
+            userRole={currentUser.role}
+            currentUserEmail={currentUser.email}
             onSuccessRedirect={() => setView({ page: 'applications', labId: null })}
           />
         );
       case 'applications':
         return (
-          <ApplicationStatus 
-            userRole={currentUser.role} 
-            currentUserEmail={currentUser.email} 
+          <ApplicationStatus
+            userRole={currentUser.role}
+            currentUserEmail={currentUser.email}
           />
         );
-      case 'inventory': // Added state routing to handle the new sidebar view selection
+      case 'inventory':
         return (
-          <InventoryManagement 
+          <InventoryManagement
             userRole={currentUser.role}
             currentUserEmail={currentUser.email}
           />
@@ -109,15 +169,12 @@ function MainDashboardApp() {
       <div className="ml-64 min-h-screen flex flex-col">
         <Header activePage={activePage} user={currentUser} onLogout={handleLogout} />
 
-        <main className="flex-1 p-8">
-          {renderContent()}
-        </main>
+        <main className="flex-1 p-8">{renderContent()}</main>
       </div>
     </div>
   );
 }
 
-// Global App Wrapper ensuring context is globally accessible to all components down the tree
 export default function App() {
   return (
     <AppProvider>
