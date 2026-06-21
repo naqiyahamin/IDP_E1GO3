@@ -41,12 +41,19 @@ function getStaffIdentityTokens(email: string): string[] {
 
   const knownStaffAliases: Record<string, string[]> = {
     'naqiyah@graduate.utm.my': ['NAQIYAH'],
+    'naqiyah@utm.my': ['NAQIYAH'],
     'aminah@graduate.utm.my': ['AMINAH', 'SULAIMAN'],
+    'aminah@utm.my': ['AMINAH', 'SULAIMAN', 'PUAN AMINAH BINTI SULAIMAN'],
     'khairul@graduate.utm.my': ['KHAIRUL', 'ANUAR'],
+    'khairul@utm.my': ['KHAIRUL', 'ANUAR', 'DR KHAIRUL ANUAR'],
     'noraziah@graduate.utm.my': ['NORAZIAH', 'HASSAN'],
+    'noraziah@utm.my': ['NORAZIAH', 'HASSAN', 'PUAN NORAZIAH BINTI HASSAN'],
     'asri@graduate.utm.my': ['ASRI', 'MOHD ASRI'],
+    'asri@utm.my': ['ASRI', 'MOHD ASRI', 'INCIK MOHD ASRI'],
     'labofficerone@graduate.utm.my': ['LAB OFFICER ONE'],
     'lab.officer.one@graduate.utm.my': ['LAB OFFICER ONE'],
+    'staff1@utm.my': ['LAB OFFICER ONE', 'OFFICER ONE'],
+    'staff1@graduate.utm.my': ['LAB OFFICER ONE', 'OFFICER ONE'],
   };
 
   const aliases = knownStaffAliases[cleanEmail] || [];
