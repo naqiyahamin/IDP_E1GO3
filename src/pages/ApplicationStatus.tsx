@@ -122,6 +122,10 @@ export default function ApplicationStatus({
   const [returnError, setReturnError] = useState('');
 
   const [copiedAppId, setCopiedAppId] = useState<string | null>(null);
+  const [attachmentViewer, setAttachmentViewer] = useState<{
+    title: string;
+    imageSource: string;
+  } | null>(null);
   const [smsNotificationPayload, setSmsNotificationPayload] = useState<{
     isOpen: boolean;
     studentName: string;
@@ -399,7 +403,7 @@ export default function ApplicationStatus({
       <div className="mt-2 flex items-center gap-2">
         <button
           type="button"
-          onClick={() => window.open(imageSource, '_blank', 'noopener,noreferrer')}
+          onClick={() => setAttachmentViewer({ title: label, imageSource })}
           className="group inline-flex items-center gap-2 rounded-lg border border-slate-200 bg-white px-2 py-1 text-[10px] font-bold text-slate-700 shadow-sm hover:border-red-200 hover:bg-red-50 hover:text-red-800 transition-colors"
         >
           <span className="h-9 w-9 overflow-hidden rounded-md border border-slate-200 bg-slate-50 flex items-center justify-center">
@@ -1244,6 +1248,34 @@ export default function ApplicationStatus({
                 </button>
               </div>
             </form>
+          </div>
+        </div>
+      )}
+
+      {attachmentViewer && (
+        <div className="fixed inset-0 bg-slate-950/75 backdrop-blur-sm flex items-center justify-center p-4 z-50">
+          <div className="bg-white rounded-xl border border-slate-200 shadow-2xl max-w-4xl w-full max-h-[90vh] overflow-hidden flex flex-col">
+            <div className="bg-gray-900 text-white px-4 py-3 flex items-center justify-between">
+              <div className="flex items-center gap-2">
+                <ImageIcon className="w-4 h-4 text-amber-400" />
+                <h3 className="font-bold text-xs tracking-wide">{attachmentViewer.title}</h3>
+              </div>
+              <button
+                type="button"
+                onClick={() => setAttachmentViewer(null)}
+                className="text-white font-bold text-sm"
+              >
+                x
+              </button>
+            </div>
+
+            <div className="bg-slate-100 p-3 overflow-auto flex-1">
+              <img
+                src={attachmentViewer.imageSource}
+                alt={attachmentViewer.title}
+                className="mx-auto max-h-[75vh] max-w-full rounded-lg border border-slate-200 bg-white object-contain shadow-sm"
+              />
+            </div>
           </div>
         </div>
       )}
