@@ -4,6 +4,8 @@ import Header from './components/Header';
 import LaboratoryList from './pages/LaboratoryList';
 import EquipmentAvailability from './pages/EquipmentAvailability';
 import ApplicationStatus from './pages/ApplicationStatus';
+import WaitingList from './pages/WaitingList';
+import EquipmentCalendar from './pages/EquipmentCalendar';
 import StaffOnDuty from './pages/StaffOnDuty';
 import AdvancedElectronics from './pages/AdvancedElectronics';
 import LoginPage from './pages/LoginPage';
@@ -144,6 +146,20 @@ function MainDashboardApp() {
       case 'applications':
         return (
           <ApplicationStatus
+            userRole={currentUser.role}
+            currentUserEmail={currentUser.email}
+          />
+        );
+      case 'waiting-list':
+        return (
+          <WaitingList
+            userRole={currentUser.role}
+            currentUserEmail={currentUser.email}
+          />
+        );
+      case 'calendar':
+        return (
+          <EquipmentCalendar
             userRole={currentUser.role}
             currentUserEmail={currentUser.email}
           />
