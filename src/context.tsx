@@ -1,4 +1,4 @@
-import { createContext, useContext, useState, useCallback, useEffect, useMemo, type ReactNode } from 'react';
+import { createContext, useContext, useState, useCallback, useEffect, useMemo, useRef, type ReactNode } from 'react';
 import { supabase } from './lib/supabase';
 import { type BorrowFormData } from './components/BorrowFormModal';
 import { updateUserPasswordInRegistry } from './auth';
@@ -286,93 +286,129 @@ export function AppProvider({ children }: { children: ReactNode }) {
   const [componentInventory, setComponentInventory] = useState<ComponentType[]>([]);
   const [transactionHistory, setTransactionHistory] = useState<HistoryEntry[]>([]);
   const [loading, setLoading] = useState(true);
+  const realtimeRefreshTimerRef = useRef<number | null>(null);
+  const fetchInProgressRef = useRef(false);
+  const queuedRefreshRef = useRef(false);
 
   const fetchAllData = useCallback(async () => {
-    const [appsRes, equipRes, invRes, blackRes, histRes] = await Promise.all([
-      supabase.from('applications').select('*').order('submitted_at', { ascending: true }),
-      supabase.from('equipment_rows').select('*').order('no', { ascending: true }),
-      supabase.from('component_inventory').select('*').order('name', { ascending: true }),
-      supabase.from('blacklisted_emails').select('email'),
-      supabase.from('transaction_history').select('*').order('borrow_timestamp', { ascending: true }),
-    ]);
+    if (fetchInProgressRef.current) {
+      queuedRefreshRef.current = true;
+      return false;
+    }
 
-    if (appsRes.error) console.error('Fetch applications failed:', appsRes.error);
-    if (equipRes.error) console.error('Fetch equipment rows failed:', equipRes.error);
-    if (invRes.error) console.error('Fetch component inventory failed:', invRes.error);
-    if (blackRes.error) console.error('Fetch blacklisted emails failed:', blackRes.error);
-    if (histRes.error) console.error('Fetch transaction history failed:', histRes.error);
+    fetchInProgressRef.current = true;
 
-    setApplicationQueue((appsRes.data || []).map(dbRowToApplication));
-    setEquipmentRows((equipRes.data || []).map(dbRowToEquipment));
-    setComponentInventory((invRes.data || []).map(dbRowToInventory));
-    setBlacklistedEmails(
-      (blackRes.data || []).map((r: Record<string, unknown>) =>
-        String(r.email || '').toLowerCase().trim()
-      )
-    );
-    setTransactionHistory((histRes.data || []).map(dbRowToHistory));
-    setLoading(false);
+    try {
+      const [appsRes, equipRes, invRes, blackRes, histRes] = await Promise.all([
+        supabase.from('applications').select('*').order('submitted_at', { ascending: true }),
+        supabase.from('equipment_rows').select('*').order('no', { ascending: true }),
+        supabase.from('component_inventory').select('*').order('name', { ascending: true }),
+        supabase.from('blacklisted_emails').select('email'),
+        supabase.from('transaction_history').select('*').order('borrow_timestamp', { ascending: true }),
+      ]);
+
+      if (appsRes.error) {
+        console.error('Fetch applications failed:', appsRes.error);
+      } else {
+        setApplicationQueue((appsRes.data || []).map(dbRowToApplication));
+      }
+
+      if (equipRes.error) {
+        console.error('Fetch equipment rows failed:', equipRes.error);
+      } else {
+        setEquipmentRows((equipRes.data || []).map(dbRowToEquipment));
+      }
+
+      if (invRes.error) {
+        console.error('Fetch component inventory failed:', invRes.error);
+      } else {
+        setComponentInventory((invRes.data || []).map(dbRowToInventory));
+      }
+
+      if (blackRes.error) {
+        console.error('Fetch blacklisted emails failed:', blackRes.error);
+      } else {
+        setBlacklistedEmails(
+          (blackRes.data || []).map((r: Record<string, unknown>) =>
+            String(r.email || '').toLowerCase().trim()
+          )
+        );
+      }
+
+      if (histRes.error) {
+        console.error('Fetch transaction history failed:', histRes.error);
+      } else {
+        setTransactionHistory((histRes.data || []).map(dbRowToHistory));
+      }
+
+      return !(appsRes.error || equipRes.error || invRes.error || blackRes.error || histRes.error);
+    } finally {
+      fetchInProgressRef.current = false;
+      setLoading(false);
+
+      if (queuedRefreshRef.current) {
+        queuedRefreshRef.current = false;
+        window.setTimeout(() => {
+          fetchAllData();
+        }, 150);
+      }
+    }
   }, []);
+
+  const scheduleRealtimeRefresh = useCallback(() => {
+    if (realtimeRefreshTimerRef.current !== null) {
+      window.clearTimeout(realtimeRefreshTimerRef.current);
+    }
+
+    realtimeRefreshTimerRef.current = window.setTimeout(() => {
+      realtimeRefreshTimerRef.current = null;
+      fetchAllData();
+    }, 350);
+  }, [fetchAllData]);
 
   useEffect(() => {
     fetchAllData();
   }, [fetchAllData]);
 
-  // Real-time subscription for all tables
+  // Real-time subscription for all tables.
+  // Approval updates several tables quickly, so debounce the event storm into one complete reload.
   useEffect(() => {
     const channel = supabase
       .channel('lab-realtime')
       .on(
         'postgres_changes',
         { event: '*', schema: 'public', table: 'applications' },
-        () => {
-          supabase.from('applications').select('*').order('submitted_at', { ascending: true }).then((res) => {
-            if (res.data) setApplicationQueue(res.data.map(dbRowToApplication));
-          });
-        }
+        scheduleRealtimeRefresh
       )
       .on(
         'postgres_changes',
         { event: '*', schema: 'public', table: 'equipment_rows' },
-        () => {
-          supabase.from('equipment_rows').select('*').order('no', { ascending: true }).then((res) => {
-            if (res.data) setEquipmentRows(res.data.map(dbRowToEquipment));
-          });
-        }
+        scheduleRealtimeRefresh
       )
       .on(
         'postgres_changes',
         { event: '*', schema: 'public', table: 'component_inventory' },
-        () => {
-          supabase.from('component_inventory').select('*').order('name', { ascending: true }).then((res) => {
-            if (res.data) setComponentInventory(res.data.map(dbRowToInventory));
-          });
-        }
+        scheduleRealtimeRefresh
       )
       .on(
         'postgres_changes',
         { event: '*', schema: 'public', table: 'blacklisted_emails' },
-        () => {
-          supabase.from('blacklisted_emails').select('email').then((res) => {
-            if (res.data) setBlacklistedEmails(res.data.map((r: Record<string, unknown>) => r.email as string));
-          });
-        }
+        scheduleRealtimeRefresh
       )
       .on(
         'postgres_changes',
         { event: '*', schema: 'public', table: 'transaction_history' },
-        () => {
-          supabase.from('transaction_history').select('*').order('borrow_timestamp', { ascending: true }).then((res) => {
-            if (res.data) setTransactionHistory(res.data.map(dbRowToHistory));
-          });
-        }
+        scheduleRealtimeRefresh
       )
       .subscribe();
 
     return () => {
+      if (realtimeRefreshTimerRef.current !== null) {
+        window.clearTimeout(realtimeRefreshTimerRef.current);
+      }
       supabase.removeChannel(channel);
     };
-  }, []);
+  }, [scheduleRealtimeRefresh]);
 
   const updateEquipmentStatus = useCallback((code: string, newStatus: EquipmentStatus) => {
     supabase.from('equipment_rows').update({ status: newStatus }).eq('code', code).then();
