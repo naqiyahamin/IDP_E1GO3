@@ -159,7 +159,7 @@ export default function LoginPage({
         )}
 
         {isResetPasswordMode ? (
-          <form onSubmit={handleResetPasswordSubmit} className="space-y-4">
+          <form onSubmit={handleResetPasswordSubmit} className="space-y-4" autoComplete="off">
             <div>
               <label className="block text-xs font-semibold text-gray-700 mb-1">
                 New Password
@@ -171,6 +171,7 @@ export default function LoginPage({
                   value={newPassword}
                   onChange={(e) => setNewPassword(e.target.value)}
                   placeholder="Enter new password..."
+                  autoComplete="new-password"
                   className="w-full pl-3 pr-10 py-2 text-sm border border-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-utm-maroon/30 focus:border-utm-maroon"
                 />
                 <button
@@ -193,6 +194,7 @@ export default function LoginPage({
                 value={confirmNewPassword}
                 onChange={(e) => setConfirmNewPassword(e.target.value)}
                 placeholder="Confirm new password..."
+                autoComplete="new-password"
                 className="w-full px-3 py-2 text-sm border border-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-utm-maroon/30 focus:border-utm-maroon"
               />
             </div>
@@ -216,7 +218,7 @@ export default function LoginPage({
             )}
           </form>
         ) : showRecoveryScreen ? (
-          <form onSubmit={handleForgotPasswordSubmit} className="space-y-4">
+          <form onSubmit={handleForgotPasswordSubmit} className="space-y-4" autoComplete="off">
             <div>
               <label className="block text-xs font-semibold text-gray-700 mb-1">
                 Registered Institutional Email
@@ -228,6 +230,7 @@ export default function LoginPage({
                   value={recoveryEmail}
                   onChange={(e) => setRecoveryEmail(e.target.value)}
                   placeholder="name@graduate.utm.my or staff@utm.my"
+                  autoComplete="off"
                   className="w-full pl-3 pr-10 py-2 text-sm border border-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-utm-maroon/30 focus:border-utm-maroon"
                 />
                 <div className="absolute inset-y-0 right-0 pr-3 flex items-center text-gray-400">
@@ -259,7 +262,10 @@ export default function LoginPage({
             </div>
           </form>
         ) : (
-          <form onSubmit={handleSubmit} className="space-y-4">
+          <form onSubmit={handleSubmit} className="space-y-4" autoComplete="off">
+            <input type="text" name="fake-user" autoComplete="username" className="hidden" />
+            <input type="password" name="fake-password" autoComplete="current-password" className="hidden" />
+
             <div>
               <label className="block text-xs font-semibold text-gray-700 mb-1">
                 Email Address
@@ -270,6 +276,8 @@ export default function LoginPage({
                 value={email}
                 onChange={(e) => setEmail(e.target.value)}
                 placeholder="name@graduate.utm.my or staff@utm.my"
+                autoComplete="off"
+                name="lab-login-email"
                 className="w-full px-3 py-2 text-sm border border-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-utm-maroon/30 focus:border-utm-maroon"
               />
             </div>
@@ -296,6 +304,8 @@ export default function LoginPage({
                   value={password}
                   onChange={(e) => setPassword(e.target.value)}
                   placeholder="Enter account password..."
+                  autoComplete="new-password"
+                  name="lab-login-password"
                   className="w-full pl-3 pr-10 py-2 text-sm border border-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-utm-maroon/30 focus:border-utm-maroon"
                 />
                 <button
