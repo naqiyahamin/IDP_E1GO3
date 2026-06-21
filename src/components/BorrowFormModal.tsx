@@ -18,16 +18,25 @@ export interface BorrowFormData {
   emailAddress: string;
 }
 
+function normalizeIdentityText(value: string): string {
+  return value.toUpperCase().replace(/[^A-Z0-9]/g, '');
+}
+
 const VALIDATORS: Record<keyof BorrowFormData, (v: string, context?: string) => string | null> = {
   fullName: (v, emailAddress = '') => {
     if (!v.trim()) return 'Required';
-    if (!/^[A-Za-z0-9\s]+$/.test(v)) return 'Only alphanumeric characters and spaces allowed';
+
+    if (!/^[A-Za-z0-9\s.'\/-]+$/.test(v)) {
+      return 'Only letters, numbers, spaces, dots, slashes, apostrophes, and hyphens allowed';
+    }
 
     if (emailAddress.trim().toLowerCase().endsWith('@graduate.utm.my')) {
-      const emailPrefix = emailAddress.trim().split('@')[0].toUpperCase();
-      const isTestAccount = /^STUDENT\d+$/.test(emailPrefix);
+      const emailPrefix = emailAddress.trim().split('@')[0];
+      const normalizedEmailPrefix = normalizeIdentityText(emailPrefix);
+      const normalizedName = normalizeIdentityText(v);
+      const isTestAccount = /^STUDENT\d+$/.test(normalizedEmailPrefix);
 
-      if (!isTestAccount && !v.toUpperCase().replace(/\s+/g, '').includes(emailPrefix)) {
+      if (!isTestAccount && !normalizedName.includes(normalizedEmailPrefix)) {
         return `Security verification failed: Name must match your email identity ("${emailPrefix.toLowerCase()}")`;
       }
     }
@@ -50,8 +59,8 @@ const VALIDATORS: Record<keyof BorrowFormData, (v: string, context?: string) => 
   duration: (v) => {
     const value = v.trim().toUpperCase();
     if (!value) return 'Required';
-    if (!/^\d+(?:\.\d+)?\s+(MINUTE|MINUTES|HOUR|HOURS|DAY|DAYS)$/.test(value)) {
-      return 'Use format: 1 MINUTE, 2 HOURS, or 1 DAY';
+    if (!/^\d+(?:\.\d+)?\s+(MINUTE|MINUTES|HOUR|HOURS|DAY|DAYS|WEEK|WEEKS)$/.test(value)) {
+      return 'Use format: 1 MINUTE, 2 HOURS, 10 DAYS, or 2 WEEKS';
     }
     return null;
   },
@@ -245,7 +254,7 @@ export default function BorrowForm({
               }
               onBlur={() => handleBlur('fullName')}
               className={fieldClass('fullName')}
-              placeholder="e.g. AHMAD RAZIF"
+              placeholder="e.g. LI JIA JIN"
             />
             {touched.fullName && errors.fullName && (
               <p className="text-[10px] text-red-500 mt-1">{errors.fullName}</p>
@@ -290,7 +299,7 @@ export default function BorrowForm({
                 }
                 onBlur={() => handleBlur('duration')}
                 className={fieldClass('duration')}
-                placeholder="e.g. 1 MINUTE or 2 HOURS"
+                placeholder="e.g. 1 WEEK or 10 DAYS"
               />
               {touched.duration && errors.duration && (
                 <p className="text-[10px] text-red-500 mt-1">{errors.duration}</p>
